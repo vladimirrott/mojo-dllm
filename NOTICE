@@ -23,7 +23,7 @@ llama.cpp (MIT, Copyright (c) 2023-2026 The ggml authors)
   regular expression from llama.cpp's src/llama-vocab.cpp.
   tools/ref/llada_ref.cpp links against libllama for testing only.
 
-scripts/verify-action-pins.sh, scripts/action-pin-comments.py,
+scripts/verify-action-pins.sh, scripts/action-pin-comments.py, scripts/github_yaml.py,
 scripts/check_hygiene.sh, CODE_OF_CONDUCT.md (adapted)
   From lacs-project/sysknife and vladimirrott/maintainer-agent, MIT,
   Copyright (c) 2026 Vladimir Rotariu. CODE_OF_CONDUCT.md is the Contributor

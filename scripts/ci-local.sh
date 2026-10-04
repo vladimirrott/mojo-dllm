@@ -33,6 +33,11 @@ case "${1:-}" in
         ;;
 esac
 
+# pixi's installer puts it in ~/.pixi/bin, which may not be on PATH in a
+# git hook or a shell whose rc file the installer was told not to edit.
+if ! command -v pixi >/dev/null 2>&1 && [ -x "$HOME/.pixi/bin/pixi" ]; then
+    PATH="$HOME/.pixi/bin:$PATH"
+fi
 if command -v mojo >/dev/null 2>&1; then
     MOJO=mojo
 elif command -v pixi >/dev/null 2>&1; then
@@ -99,6 +104,10 @@ md_lint() {
 claims() {
     python3 scripts/bench_table.py --check
 }
+action_pins() {
+    # Resolves each pinned SHA's tag through the GitHub API, so it needs gh.
+    need gh && bash scripts/verify-action-pins.sh
+}
 docs_build() {
     need mdbook && mdbook build && python3 scripts/check_links.py
 }
@@ -113,6 +122,7 @@ if [ "$mode" = full ]; then
     step "markdownlint" md_lint
     step "README numbers match bench/results" claims
     step "docs build + links" docs_build
+    step "action pins match their tags" action_pins
 fi
 
 printf '\n==> summary (%s)\n' "$mode"
