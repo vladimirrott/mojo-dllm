@@ -1,0 +1,34 @@
+name: Bug report
+description: Something produced an error, a crash, or wrong output.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: What it printed, and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model file
+      description: File name and sha256.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Output of `pixi run mojo --version` and `lscpu | head -20`.
+      render: text
+    validations:
+      required: true

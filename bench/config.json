@@ -1,0 +1,20 @@
+{
+  "models": {
+    "gguf": "~/models/llada/LLaDA-8B-Instruct.Q4_K_M.gguf",
+    "diffuse_gguf": "~/models/diffuse-cpp/llada-8b-q4km.gguf"
+  },
+  "llama_cpp": "~/src/llama.cpp",
+  "diffuse_cpp": "~/src/diffuse-cpp",
+  "runtimes": ["mojo-dllm", "mojo-dllm-full-logits", "llama.cpp", "diffuse-cpp", "diffuse-cpp-cache-entropy-exit"],
+  "prompts": [
+    "Explain speculative decoding in two sentences.",
+    "Write a short Python function that checks whether a number is prime.",
+    "List three differences between diffusion language models and autoregressive language models."
+  ],
+  "gen_length": 128,
+  "steps": 32,
+  "block_length": 32,
+  "threads": 12,
+  "busy_threshold": 0.10,
+  "max_quiet_wait_s": 300
+}

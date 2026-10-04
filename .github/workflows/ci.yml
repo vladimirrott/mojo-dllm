@@ -1,0 +1,99 @@
+---
+name: CI
+
+# The same gates scripts/ci-local.sh runs, split into three parallel jobs.
+# Run them locally first (`scripts/ci-local.sh`, or the pre-push hook): this
+# repository is private for now, and private-repo Actions minutes are metered.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install lint tools at exact versions
+        run: |
+          npm install --global markdownlint-cli2@0.23.2
+          python -m pip install yamllint==1.38.0 PyYAML==6.0.2
+
+      - name: Secrets and employer name in tracked files
+        run: bash scripts/check_hygiene.sh --tracked
+
+      - name: shellcheck
+        run: shellcheck --severity=warning scripts/*.sh .githooks/*
+
+      - name: yamllint
+        run: yamllint --strict .github
+
+      - name: markdownlint
+        run: markdownlint-cli2 "*.md" "docs/**/*.md" "#docs/spec.md"
+
+      - name: README benchmark numbers come from bench/results
+        run: python scripts/bench_table.py --check
+
+      - name: Action pins match the tags in their comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/verify-action-pins.sh
+
+  mojo:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          locked: true
+
+      - name: mojo format (no check mode, so format and diff)
+        run: pixi run fmt-check
+
+      - name: Build with -Werror
+        run: pixi run build
+
+      - name: Tests, with the passing count pinned
+        run: pixi run test
+
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install mdBook (checksum verified)
+        env:
+          MDBOOK_VERSION: "0.4.40"
+          MDBOOK_SHA256: "9ef07fd288ba58ff3b99d1c94e6d414d431c9a61fdb20348e5beb74b823d546b"
+        run: |
+          set -euo pipefail
+          curl -sSfL -o mdbook.tar.gz \
+            "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${MDBOOK_SHA256}  mdbook.tar.gz" | sha256sum --check --strict -
+          tar -xzf mdbook.tar.gz --directory /usr/local/bin
+
+      - name: Build the book and check relative links
+        run: |
+          mdbook build
+          python3 scripts/check_links.py

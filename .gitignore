@@ -1,0 +1,7 @@
+build/
+.pixi/
+scratch/
+site/
+book/
+*.f32.tmp
+__pycache__/

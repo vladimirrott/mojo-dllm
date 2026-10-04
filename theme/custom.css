@@ -1,0 +1,12 @@
+/* mojo-dllm: ember + teal on the navy theme. */
+:root {
+  --ember: #ff6b1a;
+  --ember-soft: #ffb45a;
+  --teal: #5eead4;
+}
+.hero { text-align: center; margin: 1.5rem 0 2rem; }
+.hero img { width: 140px; height: 140px; }
+.hero .tagline { font-size: 1.15rem; opacity: 0.85; margin-top: 0.5rem; }
+.content a { text-decoration-color: var(--ember-soft); }
+.content h1, .content h2 { border-bottom: 1px solid rgba(94, 234, 212, 0.25); padding-bottom: 0.2em; }
+.content table { font-variant-numeric: tabular-nums; }

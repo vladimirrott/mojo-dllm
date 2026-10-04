@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""End-to-end benchmark: mojo-dllm vs llama.cpp vs diffuse-cpp on LLaDA-8B Q4_K_M.
+
+usage: python3 bench/run_bench.py --config bench/config.json [--reps 3] [--out bench/results/NAME.json]
+
+Every runtime does the same work per prompt: a canvas of L = P + G tokens
+(P prompt tokens, G generated), and the same number of full-canvas forward
+passes S. Block layout and sampler details differ by runtime and are recorded
+next to the numbers; the forward passes, which are over 95% of the time, are
+identical in shape.
+
+Measurement hygiene, all recorded in the output:
+  * runs are interleaved (A B C, A B C, ...) so drift hits every runtime;
+  * each run starts only when the 1-minute load average is below a threshold;
+  * a watchdog kills any process named exactly `pytest` while the benchmark
+    runs (other sessions on this machine launch test suites that would
+    otherwise compete for the CPU) and logs every kill;
+  * the power profile is set to `performance` and restored on exit.
+
+Nothing here estimates a number. A run that fails or prints no timing is
+recorded as failed and excluded, and the summary says how many were.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import pathlib
+import platform
+import re
+import shlex
+import signal
+import statistics
+import subprocess
+import tempfile
+import threading
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+class Watchdog(threading.Thread):
+    def __init__(self, name: str, log: list[dict]) -> None:
+        super().__init__(daemon=True)
+        self.target = name
+        self.log = log
+        self.stop = threading.Event()
+
+    def run(self) -> None:
+        me = os.getpid()
+        while not self.stop.is_set():
+            for d in pathlib.Path("/proc").iterdir():
+                if not d.name.isdigit() or int(d.name) == me:
+                    continue
+                try:
+                    comm = (d / "comm").read_text().strip()
+                except OSError:
+                    continue
+                if comm != self.target:
+                    continue
+                pid = int(d.name)
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    # Time and pid only: where the process ran is someone else's business.
+                    self.log.append(dict(time=dt.datetime.now().isoformat(timespec="seconds"), pid=pid))
+                except ProcessLookupError:
+                    pass
+            self.stop.wait(1.0)
+
+
+def sh(cmd: str) -> str:
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip()
+
+
+def cpu_busy(sample_s: float = 2.0) -> float:
+    """Fraction of all CPU time spent busy over a short sample (0..1).
+
+    The load average is the wrong signal between runs: it is a 1-minute
+    moving average, so it still carries the previous benchmark run and makes
+    every run wait for its own predecessor to decay.
+    """
+
+    def snap() -> tuple[int, int]:
+        f = pathlib.Path("/proc/stat").read_text().splitlines()[0].split()[1:]
+        vals = [int(x) for x in f]
+        idle = vals[3] + vals[4]
+        return sum(vals), idle
+
+    t1, i1 = snap()
+    time.sleep(sample_s)
+    t2, i2 = snap()
+    return 1.0 - (i2 - i1) / max(t2 - t1, 1)
+
+
+def wait_for_quiet(threshold: float, max_wait: float) -> tuple[float, float]:
+    t0 = time.time()
+    while True:
+        busy = cpu_busy()
+        if busy < threshold or time.time() - t0 > max_wait:
+            return busy, time.time() - t0
+        time.sleep(3)
+
+
+def timed(cmd: list[str]) -> tuple[int, str, str, float, int]:
+    """Run under /usr/bin/time; returns rc, stdout, stderr, wall s, peak RSS bytes."""
+    with tempfile.NamedTemporaryFile("r", suffix=".time") as tf:
+        full = ["/usr/bin/time", "-f", "%e %M", "-o", tf.name] + cmd
+        p = subprocess.run(full, capture_output=True, text=True)
+        parts = pathlib.Path(tf.name).read_text().strip().splitlines()[-1].split()
+        return p.returncode, p.stdout, p.stderr, float(parts[0]), int(parts[1]) * 1024
+
+
+def run_mojo(c: dict, prompt: str, threads: int, extra: list[str]) -> dict:
+    cmd = [
+        str(ROOT / "build/mojo-dllm"), "run", "--model", c["models"]["gguf"], "--prompt", prompt,
+        "--max-tokens", str(c["gen_length"]), "--steps", str(c["steps"]),
+        "--block-length", str(c["block_length"]), "--threads", str(threads), "--json",
+    ] + extra
+    rc, out, err, wall, rss = timed(cmd)
+    line = next((l for l in out.splitlines() if l.startswith("{")), None)
+    if rc != 0 or line is None:
+        return dict(ok=False, rc=rc, error=(err or out)[-400:])
+    j = json.loads(line)
+    return dict(
+        ok=True, wall_s=wall, peak_rss_bytes=rss, generate_s=j["generate_s"],
+        ms_per_step=j["ms_per_step"], forward_passes=j["forward_passes"],
+        startup_s=wall - j["generate_s"], seq_len=j["prompt_tokens"] + j["gen_length"],
+        prompt_tokens=j["prompt_tokens"], text=j["text"],
+        gemm_ms_per_forward=j["gemm_ms_per_forward"], attention_ms_per_forward=j["attention_ms_per_forward"],
+        lm_head_ms_per_forward=j["lm_head_ms_per_forward"],
+    )
+
+
+def run_llama(c: dict, prompt: str, threads: int, seq_len: int) -> dict:
+    cmd = [
+        c["llama_cpp"] + "/build/bin/llama-diffusion-cli", "-m", c["models"]["gguf"], "-p", prompt,
+        "-c", str(seq_len), "-b", str(seq_len), "-ub", str(seq_len),
+        "--diffusion-steps", str(c["steps"]), "--diffusion-eps", "0.001",
+        "--temp", "0", "-t", str(threads), "-tb", str(threads), "--seed", "42",
+    ]
+    rc, out, err, wall, rss = timed(cmd)
+    m = re.search(r"total time: ([0-9.]+)ms, time per step: ([0-9.]+)ms", err + out)
+    if rc != 0 or not m:
+        return dict(ok=False, rc=rc, error=(err or out)[-400:])
+    total = float(m.group(1)) / 1000.0
+    # diffusion-cli prints the timing line from inside the generator, then logs
+    # the text; drop its trailing llama_perf/teardown lines.
+    tail = (err + out)[m.end():]
+    text = "\n".join(l for l in tail.splitlines() if not l.startswith(("llama_", "common_", "main:"))).strip()
+    return dict(
+        ok=True, wall_s=wall, peak_rss_bytes=rss, generate_s=total,
+        ms_per_step=float(m.group(2)), forward_passes=c["steps"], startup_s=wall - total,
+        seq_len=seq_len, text=text[-600:],
+    )
+
+
+def run_diffuse(c: dict, token_ids: str, threads: int, prompt_tokens: int, mode: str) -> dict:
+    """diffuse-cli prints no timings, so time its generate call from outside.
+
+    It writes "Generating ..." to stderr right before diffuse_generate() and
+    "Generated token IDs" right after; timestamping those two markers as the
+    stream arrives brackets exactly the generation, excluding model load.
+    """
+    cmd = [
+        c["diffuse_cpp"] + "/build/diffuse-cli", "-m", c["models"]["diffuse_gguf"], "--tokens", token_ids,
+        "-n", str(c["gen_length"]), "-s", str(c["steps"]), "-t", str(threads),
+    ]
+    if mode == "equal":
+        cmd += ["--no-cache", "--remasking", "low_confidence"]
+    else:
+        cmd += ["--remasking", "entropy_exit"]
+    with tempfile.NamedTemporaryFile("r", suffix=".time") as tf:
+        t_launch = time.perf_counter()
+        proc = subprocess.Popen(["/usr/bin/time", "-f", "%e %M", "-o", tf.name] + cmd,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert proc.stderr is not None and proc.stdout is not None
+        err = b""
+        t_start = t_end = None
+        last_step = 0
+        while True:
+            chunk = os.read(proc.stderr.fileno(), 65536)
+            if not chunk:
+                break
+            now = time.perf_counter()
+            err += chunk
+            if t_start is None and b"Generating " in err:
+                t_start = now
+            if t_end is None and b"Generated token IDs" in err:
+                t_end = now
+        out = proc.stdout.read().decode(errors="replace")
+        rc = proc.wait()
+        wall_s, rss_kb = pathlib.Path(tf.name).read_text().strip().splitlines()[-1].split()
+    text_err = err.decode(errors="replace")
+    steps = re.findall(r"step (\d+)/(\d+)", text_err)
+    if steps:
+        last_step = int(steps[-1][0])
+    if rc != 0 or t_start is None or t_end is None:
+        return dict(ok=False, rc=rc, error=text_err[-600:])
+    total = t_end - t_start
+    n_steps = last_step or c["steps"]
+    return dict(
+        ok=True, wall_s=float(wall_s), peak_rss_bytes=int(rss_kb) * 1024, generate_s=total,
+        ms_per_step=total * 1000.0 / n_steps, forward_passes=n_steps,
+        startup_s=t_start - t_launch, seq_len=prompt_tokens + c["gen_length"],
+        tokens=out.strip()[-800:],
+    )
+
+
+def median_or_none(xs: list[float]) -> float | None:
+    return statistics.median(xs) if xs else None
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default=str(ROOT / "bench/config.json"))
+    ap.add_argument("--reps", type=int, default=3)
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--only", default="", help="comma list of runtimes to run")
+    args = ap.parse_args()
+    c = json.loads(pathlib.Path(args.config).read_text())
+    # Paths in the config are written with ~ so the committed file names no
+    # home directory; expand them only for use.
+    for key in list(c["models"]):
+        c["models"][key] = os.path.expanduser(c["models"][key])
+    c["llama_cpp"] = os.path.expanduser(c["llama_cpp"])
+    c["diffuse_cpp"] = os.path.expanduser(c["diffuse_cpp"])
+    runtimes = [r for r in c["runtimes"] if not args.only or r in args.only.split(",")]
+    for key in ("gguf", "diffuse_gguf"):
+        if key in c["models"] and not pathlib.Path(c["models"][key]).exists():
+            raise SystemExit(f"model file missing: {c['models'][key]}")
+
+    kills: list[dict] = []
+    wd = Watchdog("pytest", kills)
+    profile_before = sh("powerprofilesctl get")
+    results: list[dict] = []
+    out_path = pathlib.Path(args.out or ROOT / f"bench/results/{dt.date.today().isoformat()}-cpu.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    versions = {
+        "mojo-dllm": sh(f"git -C {shlex.quote(str(ROOT))} rev-parse --short HEAD")
+        + ("-dirty" if sh(f"git -C {shlex.quote(str(ROOT))} status --porcelain -- src") else ""),
+        "mojo": sh(f"cd {shlex.quote(str(ROOT))} && ~/.pixi/bin/pixi run mojo --version").splitlines()[-1],
+        "llama.cpp": sh(f"git -C {shlex.quote(c['llama_cpp'])} rev-parse --short HEAD"),
+        "diffuse-cpp": sh(f"git -C {shlex.quote(c['diffuse_cpp'])} rev-parse --short HEAD"),
+    }
+
+    def summarize() -> dict:
+        summary = {}
+        for rt in runtimes:
+            ok = [r for r in results if r["runtime"] == rt and r["ok"]]
+            bad = [r for r in results if r["runtime"] == rt and not r["ok"]]
+            summary[rt] = dict(
+                runs_ok=len(ok), runs_failed=len(bad),
+                ms_per_step_median=median_or_none([r["ms_per_step"] for r in ok]),
+                generate_s_median=median_or_none([r["generate_s"] for r in ok]),
+                tokens_per_s_median=median_or_none([c["gen_length"] / r["generate_s"] for r in ok]),
+                startup_s_median=median_or_none([r["startup_s"] for r in ok]),
+                peak_rss_gb_max=max((r["peak_rss_bytes"] for r in ok), default=0) / 1e9 or None,
+                forward_passes_median=median_or_none([r["forward_passes"] for r in ok]),
+            )
+        return summary
+
+    def write_doc(partial: bool) -> dict:
+        summary = summarize()
+        doc = dict(
+            partial=partial,
+            date=dt.datetime.now().isoformat(timespec="seconds"),
+            machine=dict(cpu=sh("lscpu | sed -n 's/^Model name:\\s*//p'"), kernel=platform.release(),
+                         ram_gb=round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9, 1),
+                         power_profile="performance", logical_cpus=os.cpu_count()),
+            versions=versions,
+            config=json.loads(pathlib.Path(args.config).read_text()), reps=args.reps, summary=summary,
+            watchdog_kills=kills, runs=results,
+        )
+        out_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+        return summary
+
+    def on_term(signum: int, frame: object) -> None:
+        raise SystemExit(f"stopped by signal {signum}")
+
+    signal.signal(signal.SIGTERM, on_term)
+    try:
+        subprocess.run(["powerprofilesctl", "set", "performance"], check=True)
+        wd.start()
+        threads = c["threads"]
+        tok_cache: dict[str, tuple[str, int]] = {}
+        for p in c["prompts"]:
+            out = subprocess.run(
+                [str(ROOT / "build/mojo-dllm"), "tokenize", "--model", c["models"]["gguf"], "--prompt", p],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            ids = out.strip().splitlines()[-1].strip("[]").replace(" ", "")
+            tok_cache[p] = (ids, len(ids.split(",")))
+        for rep in range(args.reps):
+            for pi, p in enumerate(c["prompts"]):
+                ids, n_prompt = tok_cache[p]
+                seq_len = n_prompt + c["gen_length"]
+                for rt in runtimes:
+                    load, waited = wait_for_quiet(c["busy_threshold"], c["max_quiet_wait_s"])
+                    t_start = dt.datetime.now().isoformat(timespec="seconds")
+                    if rt == "mojo-dllm":
+                        r = run_mojo(c, p, threads, [])
+                    elif rt == "mojo-dllm-full-logits":
+                        r = run_mojo(c, p, threads, ["--full-logits"])
+                    elif rt == "llama.cpp":
+                        r = run_llama(c, p, threads, seq_len)
+                    elif rt == "diffuse-cpp":
+                        r = run_diffuse(c, ids, threads, n_prompt, "equal")
+                    elif rt == "diffuse-cpp-cache-entropy-exit":
+                        r = run_diffuse(c, ids, threads, n_prompt, "default")
+                    else:
+                        raise SystemExit(f"unknown runtime {rt}")
+                    r.update(runtime=rt, prompt_index=pi, rep=rep, started=t_start,
+                             cpu_busy_before=round(load, 3), waited_s=round(waited, 1))
+                    results.append(r)
+                    write_doc(partial=True)
+                    status = f"{r['ms_per_step']:.0f} ms/step" if r["ok"] else f"FAILED rc={r.get('rc')}"
+                    print(f"rep {rep} prompt {pi} {rt:32s} {status}  busy before {load:.1%}", flush=True)
+    finally:
+        wd.stop.set()
+        subprocess.run(["powerprofilesctl", "set", profile_before or "power-saver"])
+
+    summary = write_doc(partial=False)
+    print(json.dumps(summary, indent=2))
+    print(f"watchdog killed {len(kills)} pytest process(es)")
+    print(f"wrote {out_path}")
+    failed = sum(s["runs_failed"] for s in summary.values())
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

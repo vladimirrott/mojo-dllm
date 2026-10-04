@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# The full gate set, the same steps CI runs, before anything leaves the machine.
+exec bash "$(git rev-parse --show-toplevel)/scripts/ci-local.sh"

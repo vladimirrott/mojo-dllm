@@ -1,0 +1,34 @@
+mojo-dllm
+Copyright 2026 Vladimir Rotariu
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party material and dependencies
+-------------------------------------
+
+Mojo toolchain (Modular Inc.)
+  mojo-dllm is written in Mojo and built with the `mojo` and `max-core`
+  packages pinned in pixi.toml. The Mojo compiler and standard library source
+  code is available under the Apache License v2.0 with LLVM Exceptions. The
+  prebuilt conda/PyPI packages, including the runtime shared libraries a
+  `mojo build` binary links against, are distributed under Modular's own
+  license terms (LicenseRef-MAX-Platform-Software-License; see
+  https://www.modular.com/legal). Anyone redistributing compiled mojo-dllm
+  binaries must review those terms; this repository distributes source only.
+
+llama.cpp (MIT, Copyright (c) 2023-2026 The ggml authors)
+  scripts/gen_unicode_tables.py derives
+  src/mojo_dllm/tokenizer/unicode_tables.mojo from llama.cpp's
+  src/unicode-data.cpp, and the pre-tokenizer reproduces the `bailingmoe`
+  regular expression from llama.cpp's src/llama-vocab.cpp.
+  tools/ref/llada_ref.cpp links against libllama for testing only.
+
+scripts/verify-action-pins.sh, scripts/action-pin-comments.py,
+scripts/check_hygiene.sh, CODE_OF_CONDUCT.md (adapted)
+  From lacs-project/sysknife and vladimirrott/maintainer-agent, MIT,
+  Copyright (c) 2026 Vladimir Rotariu. CODE_OF_CONDUCT.md is the Contributor
+  Covenant, version 2.1.
+
+Test fixtures
+  tests/fixtures/llada-tokenizer.gguf holds the tokenizer vocabulary and merges
+  of LLaDA-8B-Instruct (GSAI-ML), released under the MIT license.

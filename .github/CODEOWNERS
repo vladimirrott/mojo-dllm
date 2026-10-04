@@ -1,0 +1,5 @@
+* @vladimirrott
+# The quantized GEMM and the sampler decide every number this project publishes.
+/src/mojo_dllm/kernels/ @vladimirrott
+/src/mojo_dllm/diffusion/ @vladimirrott
+/bench/ @vladimirrott

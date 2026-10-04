@@ -1,0 +1,18 @@
+[book]
+title = "mojo-dllm"
+description = "Local inference for diffusion language models, written in Mojo."
+authors = ["Vladimir Rotariu"]
+language = "en"
+src = "docs"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+site-url = "/mojo-dllm/"
+git-repository-url = "https://github.com/vladimirrott/mojo-dllm"
+edit-url-template = "https://github.com/vladimirrott/mojo-dllm/edit/main/{path}"
+additional-css = ["theme/custom.css"]
+
+[output.html.fold]
+enable = true
+level = 1

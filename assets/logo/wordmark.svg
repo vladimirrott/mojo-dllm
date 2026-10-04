@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" width="720" height="200" role="img" aria-labelledby="t">
+  <title id="t">mojo-dllm</title>
+  <defs>
+    <filter id="lshadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <linearGradient id="lember" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFB45A"/>
+      <stop offset="1" stop-color="#FF6B1A"/>
+    </linearGradient>
+    <linearGradient id="lcore" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE3B0"/>
+      <stop offset="1" stop-color="#FFB45A"/>
+    </linearGradient>
+  
+    <linearGradient id="word" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFB45A"/><stop offset="1" stop-color="#FF6B1A"/></linearGradient>
+  </defs>
+  <rect width="720" height="200" rx="32" fill="#0B0F13"/>
+  <g transform="translate(10 10) scale(0.703125)">
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="#0F1419" filter="url(#lshadow)"/>
+  <g transform="translate(43 43)">
+    <!-- masked cells: teal, dashed -->
+    <g fill="none" stroke="#5EEAD4" stroke-width="3" stroke-dasharray="6 5" opacity="0.75">
+      <rect x="2" y="2" width="30" height="30" rx="7"/>
+      <rect x="36" y="2" width="30" height="30" rx="7"/>
+      <rect x="104" y="2" width="30" height="30" rx="7"/>
+      <rect x="138" y="2" width="30" height="30" rx="7"/>
+      <rect x="2" y="36" width="30" height="30" rx="7"/>
+      <rect x="104" y="36" width="30" height="30" rx="7"/>
+      <rect x="138" y="36" width="30" height="30" rx="7"/>
+      <rect x="2" y="70" width="30" height="30" rx="7"/>
+      <rect x="138" y="70" width="30" height="30" rx="7"/>
+      <rect x="2" y="138" width="30" height="30" rx="7"/>
+      <rect x="138" y="138" width="30" height="30" rx="7"/>
+    </g>
+    <!-- resolved cells: ember, forming a flame -->
+    <g fill="url(#lember)">
+      <rect x="70" y="2" width="30" height="30" rx="7"/>
+      <rect x="36" y="36" width="30" height="30" rx="7"/>
+      <rect x="70" y="36" width="30" height="30" rx="7"/>
+      <rect x="36" y="70" width="30" height="30" rx="7"/>
+      <rect x="104" y="70" width="30" height="30" rx="7"/>
+      <rect x="2" y="104" width="30" height="30" rx="7"/>
+      <rect x="36" y="104" width="30" height="30" rx="7"/>
+      <rect x="104" y="104" width="30" height="30" rx="7"/>
+      <rect x="138" y="104" width="30" height="30" rx="7"/>
+      <rect x="36" y="138" width="30" height="30" rx="7"/>
+      <rect x="104" y="138" width="30" height="30" rx="7"/>
+    </g>
+    <!-- the hottest tokens: the flame's core -->
+    <g fill="url(#lcore)">
+      <rect x="70" y="70" width="30" height="30" rx="7"/>
+      <rect x="70" y="104" width="30" height="30" rx="7"/>
+      <rect x="70" y="138" width="30" height="30" rx="7"/>
+    </g>
+  </g>
+</g>
+  <text x="210" y="112" font-family="JetBrains Mono, Fira Code, Menlo, Consolas, monospace" font-size="62" font-weight="700" fill="#F0EFE9">mojo<tspan fill="url(#word)">-dllm</tspan></text>
+  <text x="212" y="152" font-family="Inter, Helvetica, Arial, sans-serif" font-size="22" fill="#5EEAD4">diffusion language models, in Mojo</text>
+</svg>

@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-03T18:33:28",
+  "arch": "llada",
+  "model": "LLaDA-8B-Instruct.Q4_K_M.gguf",
+  "versions": {
+    "mojo-dllm": "36d6641"
+  },
+  "reference": "llama.cpp libllama via tools/ref/llada_ref.cpp",
+  "logits": [
+    {
+      "prompt": "Explain speculative decoding in two sentences.",
+      "seq_len": 64,
+      "positions": [
+        0,
+        8,
+        16,
+        19,
+        20,
+        32,
+        48,
+        63
+      ],
+      "rows": 8,
+      "min_cosine": 0.9994436008835696,
+      "max_rel_rms": 0.03358405618294803,
+      "argmax_agree": 8,
+      "mean_top5_overlap": 4.75
+    },
+    {
+      "prompt": "List three differences between diffusion language models and autoregressive language models.",
+      "seq_len": 126,
+      "positions": [
+        0,
+        15,
+        25,
+        26,
+        31,
+        63,
+        94,
+        125
+      ],
+      "rows": 8,
+      "min_cosine": 0.9993951046742412,
+      "max_rel_rms": 0.03976555374538027,
+      "argmax_agree": 8,
+      "mean_top5_overlap": 4.75
+    }
+  ],
+  "generation": [
+    {
+      "prompt": "Explain speculative decoding in two sentences.",
+      "gen_length": 32,
+      "block_length": 32,
+      "steps": 32,
+      "matching_tokens": 8,
+      "first_divergence": 5,
+      "mojo_text": "Speculative decoding is a process where a person makes educated guesses about the meaning of a message based on available information, rather than relying on direct interpretation."
+    },
+    {
+      "prompt": "Write a short Python function that checks whether a number is prime.",
+      "gen_length": 64,
+      "block_length": 32,
+      "steps": 32,
+      "matching_tokens": 64,
+      "first_divergence": null,
+      "mojo_text": "def is_prime(n):\n    if n <= 1:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True"
+    }
+  ]
+}

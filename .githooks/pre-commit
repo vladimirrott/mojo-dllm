@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fast gates on what is about to be committed: hygiene, format, -Werror build.
+exec bash "$(git rev-parse --show-toplevel)/scripts/ci-local.sh" --fast

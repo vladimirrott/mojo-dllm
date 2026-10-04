@@ -1,0 +1,133 @@
+"""Reference decoders for the GGML block formats a Q4_K_M LLaDA file contains.
+
+These are scalar and written for clarity. The hot path never calls them for
+weight matrices (see `kernels/qgemm.mojo`, which consumes the blocks in place);
+they decode embedding rows, norm vectors, and serve as the oracle for tests.
+
+Block layouts, from ggml-common.h:
+
+  Q4_K, 144 bytes per 256 weights:
+    d f16 | dmin f16 | scales[12] (8 x 6-bit scale, 8 x 6-bit min) | qs[128] nibbles
+    w = d * sc[j] * q - dmin * m[j], sub-block j = 32 weights
+
+  Q6_K, 210 bytes per 256 weights:
+    ql[128] low 4 bits | qh[64] high 2 bits | scales[16] int8 | d f16
+    w = d * sc[g] * (q - 32), group g = 16 weights
+"""
+
+from std.memory import bitcast
+
+from mojo_dllm.formats.gguf import (
+    GGML_F32,
+    GGML_F16,
+    GGML_BF16,
+    GGML_Q4_K,
+    GGML_Q6_K,
+    ggml_type_name,
+)
+from mojo_dllm.sys.mem import F32Ptr, U8Ptr
+
+comptime QK_K = 256
+comptime Q4K_BYTES = 144
+comptime Q6K_BYTES = 210
+
+
+@always_inline
+def f16_to_f32(bits: UInt16) -> Float32:
+    return bitcast[DType.float16](bits).cast[DType.float32]()
+
+
+@always_inline
+def load_f16(p: U8Ptr, off: Int) -> Float32:
+    var lo = UInt16(p.unsafe_load(off))
+    var hi = UInt16(p.unsafe_load(off + 1))
+    return f16_to_f32(lo | (hi << 8))
+
+
+@always_inline
+def q4k_scale_min(q: U8Ptr, j: Int) -> Tuple[Int, Int]:
+    """6-bit scale and min of sub-block j from the 12 packed scale bytes."""
+    if j < 4:
+        return (Int(q.unsafe_load(j) & 63), Int(q.unsafe_load(j + 4) & 63))
+    var sc = (q.unsafe_load(j + 4) & 0xF) | ((q.unsafe_load(j - 4) >> 6) << 4)
+    var m = (q.unsafe_load(j + 4) >> 4) | ((q.unsafe_load(j) >> 6) << 4)
+    return (Int(sc), Int(m))
+
+
+def dequant_q4k_block(blk: U8Ptr, dst: F32Ptr):
+    var d = load_f16(blk, 0)
+    var dmin = load_f16(blk, 2)
+    var scales = blk.unsafe_offset(4)
+    var qs = blk.unsafe_offset(16)
+    for j in range(4):
+        var a = q4k_scale_min(scales, 2 * j)
+        var b = q4k_scale_min(scales, 2 * j + 1)
+        var d1 = d * Float32(a[0])
+        var m1 = dmin * Float32(a[1])
+        var d2 = d * Float32(b[0])
+        var m2 = dmin * Float32(b[1])
+        for l in range(32):
+            var byte = qs.unsafe_load(32 * j + l)
+            dst.unsafe_store(64 * j + l, d1 * Float32(byte & 0xF) - m1)
+            dst.unsafe_store(64 * j + 32 + l, d2 * Float32(byte >> 4) - m2)
+
+
+def dequant_q6k_block(blk: U8Ptr, dst: F32Ptr):
+    var d = load_f16(blk, 208)
+    for h in range(2):
+        var ql = blk.unsafe_offset(64 * h)
+        var qh = blk.unsafe_offset(128 + 32 * h)
+        var sc = blk.unsafe_offset(192 + 8 * h)
+        var y = dst.unsafe_offset(128 * h)
+        for l in range(32):
+            var is_ = l // 16
+            var hb = Int(qh.unsafe_load(l))
+            var a = Int(ql.unsafe_load(l))
+            var b = Int(ql.unsafe_load(l + 32))
+            var q1 = ((a & 0xF) | ((hb & 3) << 4)) - 32
+            var q2 = ((b & 0xF) | (((hb >> 2) & 3) << 4)) - 32
+            var q3 = ((a >> 4) | (((hb >> 4) & 3) << 4)) - 32
+            var q4 = ((b >> 4) | (((hb >> 6) & 3) << 4)) - 32
+            var s0 = Float32(bitcast[DType.int8](sc.unsafe_load(is_ + 0)))
+            var s2 = Float32(bitcast[DType.int8](sc.unsafe_load(is_ + 2)))
+            var s4 = Float32(bitcast[DType.int8](sc.unsafe_load(is_ + 4)))
+            var s6 = Float32(bitcast[DType.int8](sc.unsafe_load(is_ + 6)))
+            y.unsafe_store(l, d * s0 * Float32(q1))
+            y.unsafe_store(l + 32, d * s2 * Float32(q2))
+            y.unsafe_store(l + 64, d * s4 * Float32(q3))
+            y.unsafe_store(l + 96, d * s6 * Float32(q4))
+
+
+def dequant_row(ggml_type: Int, src_addr: Int, dst: F32Ptr, n: Int) raises:
+    """Decode `n` consecutive elements starting at `src_addr` into f32."""
+    var src = U8Ptr(unsafe_from_address=src_addr)
+    if ggml_type == GGML_F32:
+        var s = F32Ptr(unsafe_from_address=src_addr)
+        for i in range(n):
+            dst.unsafe_store(i, s.unsafe_load(i))
+        return
+    if ggml_type == GGML_F16:
+        for i in range(n):
+            dst.unsafe_store(i, load_f16(src, 2 * i))
+        return
+    if ggml_type == GGML_BF16:
+        for i in range(n):
+            var lo = UInt32(src.unsafe_load(2 * i))
+            var hi = UInt32(src.unsafe_load(2 * i + 1))
+            dst.unsafe_store(i, bitcast[DType.float32]((lo | (hi << 8)) << 16))
+        return
+    if n % QK_K != 0:
+        raise Error("row length " + String(n) + " is not a multiple of 256")
+    if ggml_type == GGML_Q4_K:
+        for b in range(n // QK_K):
+            dequant_q4k_block(
+                src.unsafe_offset(b * Q4K_BYTES), dst.unsafe_offset(b * QK_K)
+            )
+        return
+    if ggml_type == GGML_Q6_K:
+        for b in range(n // QK_K):
+            dequant_q6k_block(
+                src.unsafe_offset(b * Q6K_BYTES), dst.unsafe_offset(b * QK_K)
+            )
+        return
+    raise Error("unsupported GGUF tensor type: " + ggml_type_name(ggml_type))
