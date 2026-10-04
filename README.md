@@ -22,6 +22,10 @@
   <a href="docs/introduction.md">Docs</a>
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" width="760" alt="mojo-dllm --visual: LLaDA-8B fills a canvas of masked tokens over 16 denoising steps, padding first, then a haiku">
+</p>
+
 mojo-dllm runs **LLaDA-8B** and **Dream-7B**, two diffusion language models,
 on your CPU from quantized GGUF files. The GGUF reader, the tokenizer, the quantized matrix
 multiply, the transformer and the denoising loop are all Mojo. You need no
@@ -36,6 +40,28 @@ is built around that.
 ## Benchmarks
 
 <!-- bench:start -->
+**LLaDA-8B-Instruct**, Q4_K_M. 13th Gen Intel(R) Core(TM) i5-13420H, 12 threads, 33.3 GB RAM, `performance` power profile. Each prompt: 128 generated tokens, 32 denoising steps; median of 3 runs x 3 prompts.
+
+| Runtime | ms / step | tokens / s | startup | peak RSS | language |
+|---|---:|---:|---:|---:|---|
+| **mojo-dllm** | 3,005 | 1.33 | 1.8 s | 5.9 GB | Mojo |
+| mojo-dllm, logits for every position (ablation) | 3,268 | 1.22 | 1.8 s | 5.9 GB | Mojo |
+| llama.cpp `llama-diffusion-cli` | 5,807 | 0.69 | 2.5 s | 8.4 GB | C/C++ |
+| diffuse-cpp, cache off | 9,996 | 0.40 | 2.3 s | 8.2 GB | C++ |
+| diffuse-cpp, cache + `entropy_exit` † | 4,380 | 1.12 | 2.6 s | 8.4 GB | C++ |
+
+Versions: mojo-dllm `bdd268b`, Mojo 1.1.0 (8189361e), llama.cpp `836d571`, diffuse-cpp `1d2bd6a`. Evidence: `bench/results/2026-10-03-cpu-diffuse.json`, `bench/results/2026-10-03-cpu-llada.json`.
+
+† Not the same work: the inter-step cache reuses stale K/V and `entropy_exit` can stop early. Shown because it is diffuse-cpp's recommended mode.
+
+**Dream-v0-Instruct-7B**, Q4_K_M. 13th Gen Intel(R) Core(TM) i5-13420H, 12 threads, 33.3 GB RAM, `performance` power profile. Each prompt: 128 generated tokens, 32 denoising steps; median of 3 runs x 3 prompts.
+
+| Runtime | ms / step | tokens / s | startup | peak RSS | language |
+|---|---:|---:|---:|---:|---|
+| **mojo-dllm** | 2,967 | 1.35 | 1.7 s | 5.6 GB | Mojo |
+| llama.cpp `llama-diffusion-cli` | 5,566 | 0.72 | 2.5 s | 8.0 GB | C/C++ |
+
+Versions: mojo-dllm `bdd268b`, Mojo 1.1.0 (8189361e), llama.cpp `836d571`. Evidence: `bench/results/2026-10-03-cpu-dream.json`.
 <!-- bench:end -->
 
 Every number above is rendered from a result file in `bench/results/`, and CI

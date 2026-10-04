@@ -22,6 +22,7 @@ mojo-dllm logits   --model PATH --tokens IDS --rows POSITIONS --out FILE [--thre
 | `--threads N` | all logical CPUs | worker threads |
 | `--no-chat` | off | skip the chat template |
 | `--full-logits` | off | compute logits for every position, as a generic runtime would (for benchmarking) |
+| `--visual` | off | redraw the canvas after every step: masked positions as teal blocks, tokens committed in that step in bold orange |
 | `--verbose` | off | timings and memory after the text |
 | `--dump-step-stats` | off | one line per denoising step |
 | `--json` | off | one JSON object with timings, tokens and text |

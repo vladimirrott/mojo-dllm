@@ -2,7 +2,7 @@
 
     mojo-dllm run      --model M --prompt TEXT [--max-tokens N] [--steps N] [--block-length N]
                        [--seed N] [--temperature T] [--threads N] [--remasking low_confidence|random]
-                       [--no-chat] [--full-logits] [--verbose] [--dump-step-stats] [--json]
+                       [--no-chat] [--full-logits] [--visual] [--verbose] [--dump-step-stats] [--json]
     mojo-dllm tokenize --model M --prompt TEXT [--no-chat]
     mojo-dllm inspect  MODEL.gguf
     mojo-dllm logits   --model M --tokens 1,2,3 --rows 0,2 --out logits.f32 [--threads N]
@@ -14,12 +14,16 @@ from std.time import perf_counter_ns
 
 from cli.args import Args, parse_csv_ints
 from mojo_dllm.formats.gguf import GGUFFile, GGUF_TYPE_ARRAY
-from mojo_dllm.diffusion.sampler import GenConfig, generate
+from mojo_dllm.diffusion.sampler import (
+    GenConfig,
+    StepObserver,
+    generate_observed,
+)
 from mojo_dllm.models.transformer import DiffusionLM
 from mojo_dllm.sys.mem import Bytes, Floats
 from mojo_dllm.tokenizer.bpe import Tokenizer
 
-comptime VERSION = "0.1.0-dev"
+comptime VERSION = "0.1.0"
 
 
 def usage() -> String:
@@ -32,7 +36,7 @@ def usage() -> String:
         " 128] [--block-length 32]\n"
         + "                [--seed 42] [--temperature 0] [--threads N]"
         " [--remasking low_confidence|random]\n"
-        + "                [--no-chat] [--full-logits] [--verbose]"
+        + "                [--no-chat] [--full-logits] [--visual] [--verbose]"
         " [--dump-step-stats] [--json]\n"
         + "  mojo-dllm tokenize --model M --prompt TEXT [--no-chat]\n"
         + "  mojo-dllm inspect MODEL.gguf\n"
@@ -109,6 +113,64 @@ def encode_prompt(
     return tok.encode(chat_prompt(arch, text))
 
 
+struct CanvasPrinter(StepObserver):
+    """Redraws the canvas after every step when --visual is on.
+
+    Masked positions are teal blocks, tokens committed in this step are bold
+    ember, earlier tokens plain. It owns the tokenizer so it can decode as it
+    draws; `cmd_run` decodes the final text through it too.
+    """
+
+    var tok: Tokenizer
+    var start: Int
+    var mask_id: Int
+    var enabled: Bool
+
+    def __init__(
+        out self, var tok: Tokenizer, start: Int, mask_id: Int, enabled: Bool
+    ):
+        self.tok = tok^
+        self.start = start
+        self.mask_id = mask_id
+        self.enabled = enabled
+
+    def on_step(
+        mut self, tokens: List[Int], committed: List[Int], step: Int, total: Int
+    ) raises:
+        if not self.enabled:
+            return
+        var esc = chr(27)
+        var out = esc + "[2J" + esc + "[H"
+        out += (
+            esc
+            + "[38;5;80mmojo-dllm"
+            + esc
+            + "[0m  denoising step "
+            + String(step)
+            + " / "
+            + String(total)
+            + "\n\n"
+        )
+        for p in range(self.start, len(tokens)):
+            var t = tokens[p]
+            if t == self.mask_id:
+                out += esc + "[38;5;30m\u2591" + esc + "[0m"
+                continue
+            if t == self.tok.eos_id or t == self.tok.eot_id:
+                out += esc + "[38;5;240m\u00b7" + esc + "[0m"
+                continue
+            var piece = self.tok.decode([t])
+            var fresh = False
+            for c in committed:
+                if c == p:
+                    fresh = True
+            if fresh:
+                out += esc + "[1;38;5;208m" + piece + esc + "[0m"
+            else:
+                out += piece
+        print(out + "\n", flush=True)
+
+
 def cmd_tokenize(a: Args) raises:
     var g = GGUFFile(a.get("model"))
     var tok = Tokenizer(g)
@@ -170,14 +232,17 @@ def cmd_run(a: Args) raises:
                 cfg.remasking,
             )
         print("load time:", model.load_seconds, "s (tokenizer", tok_s, "s)")
-    var res = generate(model, prompt, cfg)
+    var printer = CanvasPrinter(
+        tok^, len(prompt), model.cfg.mask_id, a.has("visual")
+    )
+    var res = generate_observed(model, prompt, cfg, printer)
     var gen = List[Int]()
     for i in range(len(prompt), len(res.tokens)):
         var t = res.tokens[i]
-        if t == tok.eos_id or t == tok.eot_id:
+        if t == printer.tok.eos_id or t == printer.tok.eot_id:
             break
         gen.append(t)
-    var text = tok.decode(gen)
+    var text = printer.tok.decode(gen)
     var tm = model.timings
     var fw = Float64(max(tm.forwards, 1))
     if a.has("dump-step-stats"):
@@ -327,7 +392,14 @@ def main():
     try:
         var a = Args(
             raw,
-            ["verbose", "full-logits", "no-chat", "dump-step-stats", "json"],
+            [
+                "verbose",
+                "full-logits",
+                "no-chat",
+                "dump-step-stats",
+                "json",
+                "visual",
+            ],
         )
         if a.command == "run":
             cmd_run(a)

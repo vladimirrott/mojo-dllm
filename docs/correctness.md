@@ -30,6 +30,23 @@ fixed token sequence; `mojo-dllm logits` dumps ours; `scripts/compare_logits.py`
 compares them.
 
 <!-- parity:start -->
+**LLaDA-8B-Instruct.Q4_K_M.gguf**
+
+| Canvas | rows | median cosine | masked rows median | worst cosine | median rel. RMS | same argmax | top-5 overlap |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 64 tokens | 64 | 0.99985 | 0.99988 | 0.9951 (row 13) | 0.018 | 62 / 64 | 4.83 / 5 |
+| 126 tokens | 126 | 0.99988 | 0.99989 | 0.9992 (row 19) | 0.017 | 120 / 126 | 4.67 / 5 |
+
+Evidence: `bench/parity/2026-10-03-llada.json` (mojo-dllm `0b3e17a`).
+
+**Dream-v0-Instruct-7B-Q4_K_M.gguf**
+
+| Canvas | rows | median cosine | masked rows median | worst cosine | median rel. RMS | same argmax | top-5 overlap |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 71 tokens | 71 | 0.99993 | 0.99994 | 0.9668 (row 26) | 0.032 | 64 / 71 | 4.61 / 5 |
+| 133 tokens | 133 | 0.99986 | 0.99988 | 0.9782 (row 11) | 0.033 | 92 / 133 | 4.22 / 5 |
+
+Evidence: `bench/parity/2026-10-03-dream.json` (mojo-dllm `0b3e17a`).
 <!-- parity:end -->
 
 Exact equality is not the goal: both runtimes quantize activations to int8,
@@ -62,6 +79,23 @@ algorithm differs. A run that matches every token, as the prime-checking
 prompt does on LLaDA, shows that the loops agree.
 
 <!-- genparity:start -->
+**LLaDA-8B-Instruct.Q4_K_M.gguf**
+
+| Prompt | generated | steps | same tokens | first difference |
+|---|---:|---:|---:|---:|
+| Explain speculative decoding in two sentences. | 32 | 32 | 8 / 32 | position 5 |
+| Write a short Python function that checks whether a number is prime. | 64 | 32 | 64 / 64 | none |
+
+Evidence: `bench/parity/2026-10-03-llada.json` (mojo-dllm `0b3e17a`).
+
+**Dream-v0-Instruct-7B-Q4_K_M.gguf**
+
+| Prompt | generated | steps | same tokens | first difference |
+|---|---:|---:|---:|---:|
+| Explain speculative decoding in two sentences. | 32 | 32 | 24 / 32 | position 22 |
+| Write a short Python function that checks whether a number is prime. | 64 | 32 | 43 / 64 | position 3 |
+
+Evidence: `bench/parity/2026-10-03-dream.json` (mojo-dllm `0b3e17a`).
 <!-- genparity:end -->
 
 ## Reproduce

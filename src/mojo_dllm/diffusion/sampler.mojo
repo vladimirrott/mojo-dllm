@@ -117,6 +117,25 @@ struct Rng(Movable):
         )
 
 
+trait StepObserver:
+    """Receives the canvas after every denoising step (for live display)."""
+
+    def on_step(
+        mut self, tokens: List[Int], committed: List[Int], step: Int, total: Int
+    ) raises:
+        ...
+
+
+struct NoObserver(StepObserver):
+    def __init__(out self):
+        pass
+
+    def on_step(
+        mut self, tokens: List[Int], committed: List[Int], step: Int, total: Int
+    ) raises:
+        pass
+
+
 def num_transfer_tokens(m: Int, steps: Int) -> List[Int]:
     var out = List[Int](length=steps, fill=m // steps)
     for i in range(m % steps):
@@ -182,13 +201,25 @@ def _gumbel_argmax(
 def generate(
     mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig
 ) raises -> GenResult:
+    var none = NoObserver()
+    return generate_observed(model, prompt, cfg, none)
+
+
+def generate_observed[
+    O: StepObserver
+](
+    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig, mut obs: O
+) raises -> GenResult:
+    """Like `generate`, calling `obs.on_step` after every denoising step."""
     if model.cfg.arch == "dream":
-        return _generate_dream(model, prompt, cfg)
-    return _generate_llada(model, prompt, cfg)
+        return _generate_dream(model, prompt, cfg, obs)
+    return _generate_llada(model, prompt, cfg, obs)
 
 
-def _generate_llada(
-    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig
+def _generate_llada[
+    O: StepObserver
+](
+    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig, mut obs: O
 ) raises -> GenResult:
     if cfg.gen_length <= 0 or cfg.block_length <= 0 or cfg.steps <= 0:
         raise Error(
@@ -264,9 +295,12 @@ def _generate_llada(
                     conf.append(_prob_of(row, vocab, tok))
                 else:
                     conf.append(ap[1])
+            var committed = List[Int]()
             for j in select_top(conf, schedule[s]):
                 res.tokens[cand[j]] = x0[j]
+                committed.append(cand[j])
             res.step_ms.append(Float64(perf_counter_ns() - t_step) / 1e6)
+            obs.on_step(res.tokens, committed, res.forward_passes, cfg.steps)
     res.seconds = Float64(perf_counter_ns() - t_start) / 1e9
     return res^
 
@@ -318,8 +352,10 @@ def _confidence(
     return (best, neg_h)
 
 
-def _generate_dream(
-    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig
+def _generate_dream[
+    O: StepObserver
+](
+    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig, mut obs: O
 ) raises -> GenResult:
     """Dream-org/Dream `diffusion_generate`, greedy (temperature 0, alg_temp 0).
 
@@ -388,9 +424,12 @@ def _generate_dream(
             var t = 1.0 - Float64(i) * (1.0 - cfg.eps) / Float64(cfg.steps)
             var s = 1.0 - Float64(i + 1) * (1.0 - cfg.eps) / Float64(cfg.steps)
             n_transfer = Int(Float64(len(cand)) * (1.0 - s / t))
+        var committed = List[Int]()
         if n_transfer > 0:
             for j in select_top(conf, n_transfer):
                 res.tokens[cand[j]] = x0[j]
+                committed.append(cand[j])
         res.step_ms.append(Float64(perf_counter_ns() - t_step) / 1e6)
+        obs.on_step(res.tokens, committed, res.forward_passes, cfg.steps)
     res.seconds = Float64(perf_counter_ns() - t_start) / 1e9
     return res^

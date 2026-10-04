@@ -9,6 +9,8 @@ from mojo_dllm.diffusion.sampler import (
     generate,
     Rng,
     _confidence,
+    StepObserver,
+    generate_observed,
 )
 from mojo_dllm.models.transformer import DiffusionLM
 from mojo_dllm.sys.mem import Floats
@@ -159,6 +161,46 @@ def test_dream_generation_resolves_every_mask() raises:
     for i in range(3, 11):
         assert_true(out.tokens[i] != 510, "mask left at position " + String(i))
     assert_true(out.forward_passes <= 4, "at most one pass per step")
+
+
+struct Recorder(StepObserver):
+    var steps: Int
+    var committed: Int
+    var last_total: Int
+
+    def __init__(out self):
+        self.steps = 0
+        self.committed = 0
+        self.last_total = 0
+
+    def on_step(
+        mut self, tokens: List[Int], committed: List[Int], step: Int, total: Int
+    ) raises:
+        self.steps += 1
+        self.committed += len(committed)
+        self.last_total = total
+
+
+def test_observer_sees_every_step_and_commit() raises:
+    var m = DiffusionLM(FIX + "tiny-llada.gguf", threads=2, max_tokens=16)
+    var prompt: List[Int] = [5, 17, 300]
+    var rec = Recorder()
+    var out = generate_observed(m, prompt, _tiny_cfg(), rec)
+    assert_equal(rec.steps, out.forward_passes)
+    assert_equal(rec.committed, 8)
+    assert_equal(rec.last_total, 4)
+
+
+def test_observer_sees_dream_commits() raises:
+    var m = DiffusionLM(FIX + "tiny-dream.gguf", threads=2, max_tokens=16)
+    var prompt: List[Int] = [5, 17, 300]
+    var c = GenConfig()
+    c.gen_length = 8
+    c.steps = 4
+    c.mask_id = 510
+    var rec = Recorder()
+    _ = generate_observed(m, prompt, c, rec)
+    assert_equal(rec.committed, 8)
 
 
 def main() raises:

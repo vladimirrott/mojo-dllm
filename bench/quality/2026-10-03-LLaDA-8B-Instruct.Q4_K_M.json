@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-03T21:06:28",
+  "model": "LLaDA-8B-Instruct.Q4_K_M.gguf",
+  "versions": {
+    "mojo-dllm": "bdd268b"
+  },
+  "gen_length": 128,
+  "threads": "12",
+  "runs": [
+    {
+      "prompt": "Explain speculative decoding in two sentences.",
+      "steps": 32,
+      "tokens_per_step": 4.0,
+      "generate_s": 93.395768668,
+      "ms_per_step": 2918.617770875,
+      "repeated_words": 99,
+      "text": "Speculative decoding is a process used in machine communication to improve the likelihood of a message being by by allowing the the of receiver receiver to to make the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the.",
+      "arch": "llada"
+    },
+    {
+      "prompt": "Explain speculative decoding in two sentences.",
+      "steps": 64,
+      "tokens_per_step": 2.0,
+      "generate_s": 190.71596163,
+      "ms_per_step": 2979.93690046875,
+      "repeated_words": 0,
+      "text": "Speculative decoding is a technique used in machine translation to improve the accuracy of the translated text by allowing the model to make educated guesses about the next word or phrase in on-the-fly translation. This process leverages model predictions and context feedback to refine the translation overatively.",
+      "arch": "llada"
+    },
+    {
+      "prompt": "Explain speculative decoding in two sentences.",
+      "steps": 128,
+      "tokens_per_step": 1.0,
+      "generate_s": 376.516267683,
+      "ms_per_step": 2941.5333412734376,
+      "repeated_words": 0,
+      "text": "Speculative decoding is a technique used in machine translation to improve the accuracy of the translated text by allowing the model to make educated guesses about the next word or phrase based on the context provided. This helps in generating more coherent and context-specific translations.",
+      "arch": "llada"
+    },
+    {
+      "prompt": "Write a short Python function that checks whether a number is prime.",
+      "steps": 32,
+      "tokens_per_step": 4.0,
+      "generate_s": 96.691287956,
+      "ms_per_step": 3021.602748625,
+      "repeated_words": 1,
+      "text": "def is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True",
+      "arch": "llada"
+    },
+    {
+      "prompt": "Write a short Python function that checks whether a number is prime.",
+      "steps": 64,
+      "tokens_per_step": 2.0,
+      "generate_s": 194.347093055,
+      "ms_per_step": 3036.6733289843746,
+      "repeated_words": 1,
+      "text": "def is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True",
+      "arch": "llada"
+    },
+    {
+      "prompt": "Write a short Python function that checks whether a number is prime.",
+      "steps": 128,
+      "tokens_per_step": 1.0,
+      "generate_s": 387.640867245,
+      "ms_per_step": 3028.4442753515623,
+      "repeated_words": 0,
+      "text": "Here is a short Python function that checks whether a number is prime:\n```\ndef is_prime(n):\n    if n <= 1:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True\n```\nThis function works by checking if the number is divisible by any number from 2 up to the square root of the number. If it is divisible by any of these numbers, it is not prime. If it is not divisible by any, it is prime.",
+      "arch": "llada"
+    }
+  ]
+}
