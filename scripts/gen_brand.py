@@ -54,7 +54,7 @@ def social() -> str:
   {g}
   <text x="500" y="300" font-family="JetBrains Mono, Fira Code, Menlo, Consolas, monospace" font-size="84" font-weight="700" fill="#F0EFE9">mojo<tspan fill="url(#word)">-dllm</tspan></text>
   <text x="504" y="360" font-family="Inter, Helvetica, Arial, sans-serif" font-size="34" fill="#5EEAD4">Local diffusion-LLM inference, written in Mojo</text>
-  <text x="504" y="420" font-family="Inter, Helvetica, Arial, sans-serif" font-size="26" fill="#9AA4AE">LLaDA-8B from GGUF · no Python at runtime · CPU first</text>
+  <text x="504" y="420" font-family="Inter, Helvetica, Arial, sans-serif" font-size="26" fill="#9AA4AE">LLaDA-8B and Dream-7B from GGUF · no Python at runtime · CPU first</text>
 </svg>
 """
 

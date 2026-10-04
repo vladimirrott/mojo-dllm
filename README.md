@@ -10,7 +10,7 @@
   <a href="https://github.com/vladimirrott/mojo-dllm/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/vladimirrott/mojo-dllm/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/Mojo-1.1.0-ff6b1a?style=flat-square" alt="Mojo 1.1.0">
-  <img src="https://img.shields.io/badge/model-LLaDA--8B-5eead4?style=flat-square" alt="LLaDA-8B">
+  <img src="https://img.shields.io/badge/models-LLaDA--8B%20%7C%20Dream--7B-5eead4?style=flat-square" alt="Models: LLaDA-8B, Dream-7B">
 </p>
 
 <p align="center">
@@ -22,8 +22,8 @@
   <a href="docs/introduction.md">Docs</a>
 </p>
 
-mojo-dllm runs **LLaDA-8B**, a diffusion language model, on your CPU from a
-quantized GGUF file. The GGUF reader, the tokenizer, the quantized matrix
+mojo-dllm runs **LLaDA-8B** and **Dream-7B**, two diffusion language models,
+on your CPU from quantized GGUF files. The GGUF reader, the tokenizer, the quantized matrix
 multiply, the transformer and the denoising loop are all Mojo. You need no
 Python at runtime and no GPU.
 
@@ -73,8 +73,9 @@ flags.
 - **Logits only where the sampler looks.** A step needs logits for the masked
   positions of the current block alone, so the 126 464-way output projection
   runs on those rows.
-- **LLaDA's own sampler.** Blocks, transfer schedule and low-confidence
-  remasking follow the reference `generate.py`.
+- **Each model's own sampler.** LLaDA's blocks and low-confidence remasking
+  follow its `generate.py`; Dream's timestep schedule and entropy ranking
+  follow its `diffusion_generate`.
 
 [Diffusion decoding in five minutes](docs/diffusion.md) explains the
 algorithm, and [Architecture](docs/architecture.md) maps the source.
@@ -85,25 +86,26 @@ mojo-dllm checks itself against code it does not share:
 
 - decoders and GEMMs against the `gguf` package's dequantization;
 - a 2-layer model's forward pass against numpy;
-- the tokenizer against `llama-tokenize` on 35 multilingual cases, id for id;
-- logits and generated tokens on the real 8B model against llama.cpp.
+- both tokenizers against `llama-tokenize` on 36 multilingual cases each, id
+  for id;
+- logits and generated tokens on both real models against llama.cpp.
 
 [Correctness](docs/correctness.md) has the measured agreement and the commands
 that reproduce it.
 
 ## Status
 
-Version 0.1 is CPU-only and runs LLaDA-8B from GGUF files whose tensors are
-F32, Q4_K or Q6_K.
+Version 0.1 is CPU-only and runs LLaDA-8B and Dream-7B from GGUF files whose
+tensors are F32, Q4_K or Q6_K.
 
 | Milestone | State |
 |---|---|
 | GGUF inspection, Q4_K / Q6_K kernels | done |
 | LLaDA forward pass, logit parity with llama.cpp | done |
 | Tokenizer, diffusion sampler, `mojo-dllm run` | done |
-| CPU optimization and benchmark report | first pass done |
+| CPU optimization and benchmark report | two rounds done |
+| Dream-7B (GQA, QKV bias, shifted logits, its sampler) | done |
 | NVIDIA backend | next |
-| Dream-7B | planned |
 | Inter-step caching, block diffusion | research |
 
 The [plan](docs/plan.md) lists what the original

@@ -38,21 +38,28 @@ jobs:
           python -m pip install yamllint==1.38.0 PyYAML==6.0.2
 
       - name: Secrets and employer name in tracked files
+        # Report every gate, not just the first failure.
+        if: ${{ !cancelled() }}
         run: bash scripts/check_hygiene.sh --tracked
 
       - name: shellcheck
+        if: ${{ !cancelled() }}
         run: shellcheck --severity=warning scripts/*.sh .githooks/*
 
       - name: yamllint
+        if: ${{ !cancelled() }}
         run: yamllint --strict .github
 
       - name: markdownlint
+        if: ${{ !cancelled() }}
         run: markdownlint-cli2 "*.md" "docs/**/*.md" "#docs/spec.md"
 
       - name: README benchmark numbers come from bench/results
+        if: ${{ !cancelled() }}
         run: python scripts/bench_table.py --check
 
       - name: Action pins match the tags in their comments
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/verify-action-pins.sh

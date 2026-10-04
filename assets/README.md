@@ -18,15 +18,19 @@ denoising its canvas, in Mojo. Colours: plate `#0F1419`, ember `#FFB45A` to
 python3 scripts/gen_brand.py
 ```
 
-Rasterize with any headless Chromium (Brave shown):
+Rasterize with any headless Chromium (Brave shown). The logo SVG declares
+256 × 256, so larger rasters come from a resized copy:
 
 ```bash
-for spec in "logo/mojo-dllm.svg 256 256 logo/mojo-dllm-256.png" \
-            "logo/mojo-dllm.svg 1024 1024 logo/mojo-dllm-1024.png" \
-            "social-preview.svg 1280 640 social-preview.png"; do
-  set -- $spec
+shot() {  # svg width height png
   brave-browser --headless=new --disable-gpu --hide-scrollbars \
     --default-background-color=00000000 --window-size="$2,$3" \
-    --screenshot="assets/$4" "file://$PWD/assets/$1"
-done
+    --screenshot="$PWD/assets/$4" "file://$1"
+}
+sed 's/width="256" height="256"/width="1024" height="1024"/' \
+  assets/logo/mojo-dllm.svg > /tmp/logo1024.svg
+shot "$PWD/assets/logo/mojo-dllm.svg" 256 256 logo/mojo-dllm-256.png
+shot /tmp/logo1024.svg 1024 1024 logo/mojo-dllm-1024.png
+shot "$PWD/assets/logo/wordmark.svg" 720 200 logo/wordmark.png
+shot "$PWD/assets/social-preview.svg" 1280 640 social-preview.png
 ```

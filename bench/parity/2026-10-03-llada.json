@@ -1,49 +1,45 @@
 {
-  "date": "2026-10-03T18:33:28",
+  "date": "2026-10-03T18:55:55",
   "arch": "llada",
   "model": "LLaDA-8B-Instruct.Q4_K_M.gguf",
   "versions": {
-    "mojo-dllm": "36d6641"
+    "mojo-dllm": "0b3e17a"
   },
   "reference": "llama.cpp libllama via tools/ref/llada_ref.cpp",
   "logits": [
     {
       "prompt": "Explain speculative decoding in two sentences.",
       "seq_len": 64,
-      "positions": [
-        0,
-        8,
-        16,
-        19,
-        20,
-        32,
-        48,
-        63
-      ],
-      "rows": 8,
-      "min_cosine": 0.9994436008835696,
-      "max_rel_rms": 0.03358405618294803,
-      "argmax_agree": 8,
-      "mean_top5_overlap": 4.75
+      "rows": 64,
+      "min_cosine": 0.9950793075151103,
+      "median_cosine": 0.9998529119301702,
+      "masked_median_cosine": 0.9998760101795912,
+      "max_rel_rms": 0.12048543340018987,
+      "median_rel_rms": 0.01839818447715747,
+      "argmax_agree": 62,
+      "mean_top5_overlap": 4.828125,
+      "worst_rows": [
+        13,
+        12,
+        17
+      ]
     },
     {
       "prompt": "List three differences between diffusion language models and autoregressive language models.",
       "seq_len": 126,
-      "positions": [
-        0,
-        15,
-        25,
-        26,
-        31,
-        63,
-        94,
-        125
-      ],
-      "rows": 8,
-      "min_cosine": 0.9993951046742412,
-      "max_rel_rms": 0.03976555374538027,
-      "argmax_agree": 8,
-      "mean_top5_overlap": 4.75
+      "rows": 126,
+      "min_cosine": 0.9991624674018404,
+      "median_cosine": 0.9998846525945431,
+      "masked_median_cosine": 0.9998939271916394,
+      "max_rel_rms": 0.052983033645809245,
+      "median_rel_rms": 0.01723064648174263,
+      "argmax_agree": 120,
+      "mean_top5_overlap": 4.674603174603175,
+      "worst_rows": [
+        19,
+        6,
+        2
+      ]
     }
   ],
   "generation": [

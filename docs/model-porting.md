@@ -1,7 +1,7 @@
 # Porting a model
 
-LLaDA is the only architecture so far. Dream-7B is next, and the checklist
-below is what adding it takes.
+mojo-dllm supports LLaDA and Dream. This checklist is the path Dream took,
+which is the path the next model will take.
 
 ## 1. Read the metadata
 

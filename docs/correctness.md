@@ -36,6 +36,13 @@ Exact equality is not the goal: both runtimes quantize activations to int8,
 but they block and accumulate in different orders. The llama.cpp maintainers
 recommend the same kind of statistical comparison for diffusion models.
 
+The table scores every position of each canvas. On Dream the median agrees as
+closely as on LLaDA, but a few prompt positions do not: they sit on special
+tokens and newlines, where Qwen-family models carry very large outlier
+activations that magnify int8 rounding. Masked positions, the ones the
+sampler reads, agree closely. Which of the two runtimes is nearer an f32
+reference at those outlier rows is not measured yet.
+
 ## 4. Generated tokens on the real model
 
 llama.cpp's own diffusion example cannot serve as a token-level reference. On
@@ -44,7 +51,15 @@ the pinned commit it never applies `--diffusion-cfg-scale` or
 the wrong direction, and samples from the distribution even at temperature 0.
 So `llada_ref generate` re-implements LLaDA's `generate.py` (temperature 0,
 low-confidence remasking) on top of llama.cpp's logits, and the result is
-compared token by token with `mojo-dllm run`.
+compared token by token with `mojo-dllm run`. For Dream, `llada_ref
+generate-dream` does the same with Dream's `diffusion_generate`.
+
+A diffusion loop amplifies small differences: when two candidates are nearly
+tied, the runtimes can commit different tokens at one step, and every later
+step then sees a different canvas. A run that matches only up to some
+position therefore says where the first near-tie fell, not that the
+algorithm differs. A run that matches every token, as the prime-checking
+prompt does on LLaDA, shows that the loops agree.
 
 <!-- genparity:start -->
 <!-- genparity:end -->
@@ -54,6 +69,7 @@ compared token by token with `mojo-dllm run`.
 ```bash
 c++ -O2 -std=c++17 tools/ref/llada_ref.cpp -I$LLAMA/include -I$LLAMA/ggml/include \
     -L$LLAMA/build/bin -lllama -lggml -lggml-base -Wl,-rpath,$LLAMA/build/bin -o build/llada_ref
-python3 bench/parity.py --model models/LLaDA-8B-Instruct.Q4_K_M.gguf
+python3 bench/parity.py --arch llada --model models/LLaDA-8B-Instruct.Q4_K_M.gguf
+python3 bench/parity.py --arch dream --model models/Dream-v0-Instruct-7B-Q4_K_M.gguf
 python3 scripts/bench_table.py --write
 ```

@@ -11,13 +11,13 @@ mojo-dllm logits   --model PATH --tokens IDS --rows POSITIONS --out FILE [--thre
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--model PATH` | required | LLaDA GGUF file |
+| `--model PATH` | required | LLaDA or Dream GGUF file |
 | `--prompt TEXT` | required | the user message |
 | `--max-tokens N` | 128 | tokens to generate (the masked canvas) |
 | `--steps N` | `--max-tokens` | denoising steps; a multiple of the block count |
-| `--block-length N` | 32 | semi-autoregressive block size; must divide `--max-tokens` |
+| `--block-length N` | 32 | LLaDA's semi-autoregressive block size; must divide `--max-tokens`. Dream ignores it |
 | `--temperature T` | 0 | 0 is greedy; above 0 adds Gumbel noise as LLaDA does |
-| `--remasking S` | `low_confidence` | or `random` |
+| `--remasking S` | `low_confidence` | LLaDA: `low_confidence` or `random`. Dream: `entropy` (the default), `maskgit_plus`, `topk_margin` |
 | `--seed N` | 42 | seeds this program's PRNG (it does not reproduce a PyTorch run) |
 | `--threads N` | all logical CPUs | worker threads |
 | `--no-chat` | off | skip the chat template |
