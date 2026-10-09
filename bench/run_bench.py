@@ -144,8 +144,15 @@ def run_llama(c: dict, prompt: str, threads: int, seq_len: int, cuda: bool = Fal
         "-c", str(seq_len), "-b", str(seq_len), "-ub", str(seq_len),
         "--diffusion-steps", str(c["steps"]), "--diffusion-eps", "0.001",
         "--temp", "0", "-t", str(threads), "-tb", str(threads), "--seed", "42",
-    ] + (["-ngl", "99"] if cuda else [])
+    ] + (["-ngl", "99", "-v"] if cuda else [])
     rc, out, err, wall, rss = timed(cmd)
+    if cuda:
+        # A CUDA build that fails to find the GPU falls back to the CPU and
+        # still prints a timing; refuse that rather than label it CUDA. With
+        # -v, llama.cpp names the device of every layer it loads.
+        devices = re.findall(r"layer\s+\d+ assigned to device (\w+)", err + out)
+        if not devices or any(not d.startswith("CUDA") for d in devices):
+            return dict(ok=False, rc=rc, error=f"CUDA run did not put every layer on the GPU: {sorted(set(devices))}")
     m = re.search(r"total time: ([0-9.]+)ms, time per step: ([0-9.]+)ms", err + out)
     if rc != 0 or not m:
         return dict(ok=False, rc=rc, error=(err or out)[-400:])
@@ -180,6 +187,8 @@ def run_llama_bench(c: dict, threads: int, seq_len: int, cuda: bool = False) -> 
         r = rows[0]
         if r["n_prompt"] != seq_len:
             raise ValueError(f"llama-bench ran {r['n_prompt']} tokens, not {seq_len}")
+        if cuda and "CUDA" not in str(r.get("backends", "")):
+            raise ValueError(f"llama-bench ran on {r.get('backends')!r}, not CUDA")
     except (ValueError, KeyError, IndexError) as e:
         return dict(ok=False, rc=rc, error=f"{e}: {(err or out)[-300:]}")
     if rc != 0:

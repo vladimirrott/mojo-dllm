@@ -84,11 +84,12 @@ jobs:
       - name: Tests, with the passing count pinned
         run: pixi run test
 
-      # The runner has no GPU. The GPU suite runs locally through
-      # scripts/run-gpu-tests.sh; here it must still build, and --device gpu
-      # must fail with a message rather than a crash.
+      # The runner has no GPU. scripts/build.sh then compiles the kernels for
+      # sm_80; the GPU suite runs locally through scripts/run-gpu-tests.sh.
+      # Here it must still build, and --device gpu must fail with a message
+      # rather than a crash.
       - name: GPU test suite builds
-        run: mkdir -p build/tests && pixi run mojo build -Werror -I src tests/gpu/test_gpu.mojo -o build/tests/test_gpu
+        run: MOJO="pixi run mojo" bash scripts/build.sh tests/gpu/test_gpu.mojo build/tests/test_gpu
 
       - name: --device gpu without a GPU fails cleanly
         run: bash scripts/check_no_gpu.sh

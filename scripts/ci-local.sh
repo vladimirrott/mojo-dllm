@@ -90,7 +90,7 @@ fmt_check() {
 }
 build() {
     [ -n "$MOJO" ] || { echo "missing tool: mojo" >&2; return 1; }
-    mkdir -p build && $MOJO build -Werror -I src src/main.mojo -o build/mojo-dllm
+    bash scripts/build.sh
 }
 shell_lint() {
     need shellcheck && shellcheck --severity=warning scripts/*.sh .githooks/*
@@ -138,4 +138,8 @@ if [ "$failures" -gt 0 ]; then
     printf 'ci-local: %d step(s) failed\n' "$failures"
     exit 1
 fi
-echo "ci-local: all ${#RESULTS[@]} steps passed"
+skipped=0
+for r in "${RESULTS[@]}"; do
+    [[ "$r" == SKIP* ]] && skipped=$((skipped + 1))
+done
+echo "ci-local: $((${#RESULTS[@]} - skipped)) steps passed, $skipped skipped"

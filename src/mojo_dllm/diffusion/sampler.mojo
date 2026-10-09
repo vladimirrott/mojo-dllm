@@ -239,6 +239,9 @@ def _greedy_rows(
     for j in range(n):
         toks.append(Int(tp[unsafe_offset=j]))
         confs.append(cp[unsafe_offset=j])
+    # tp and cp point into these; keep them alive until the last read.
+    _ = tok_buf^
+    _ = conf_buf^
     return (toks^, confs^)
 
 

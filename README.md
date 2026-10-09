@@ -103,7 +103,8 @@ flags.
   atomic counter, so performance cores take more than efficiency cores.
 - **Int8 tensor cores on the GPU.** With `--device gpu`, every projection
   reads the same Q4_K and Q6_K blocks from GPU memory and multiplies them on
-  the tensor cores, one `mma` per 32-weight sub-block. Attention gives each
+  the tensor cores: one `mma` per 32-weight Q4_K sub-block, one per 16-weight
+  Q6_K group. Attention gives each
   thread block 16 queries and streams the keys through shared memory.
   [The GPU path](docs/kernels.md#the-gpu-path) has the details.
 - **Logits only where the sampler looks.** A step needs logits for the masked

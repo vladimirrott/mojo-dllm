@@ -86,7 +86,11 @@ def fairness() -> str:
     docs = [(f, d) for f, d in docs if d["config"].get("kind") == "fairness"]
     out: list[str] = []
     for f, doc in sorted(docs, key=lambda fd: is_gpu(fd[1])):
-        s = doc["summary"]
+        # A runtime whose runs all failed has no medians; leave it out here
+        # and let the run's own exit status (run_bench exits 1) report it.
+        s = {k: v for k, v in doc["summary"].items() if v["runs_ok"] > 0}
+        if not s:
+            raise SystemExit(f"bench_table: {f.name} has no successful run")
         c = doc["config"]
         m = doc["machine"]
         label = model_label(doc)
@@ -129,11 +133,14 @@ def fairness() -> str:
                 fwd = f"{lb['forward_ms_median']:,.0f} ms" if lb and lb["forward_ms_median"] else ""
                 out.append(f"| llama.cpp | {t} | {step} | {fwd} |")
         busy = [r["cpu_busy_before"] for r in doc["runs"]]
+        steps = "" if is_gpu(doc) else "ms / step runs `llama-diffusion-cli`; "
+        cpu_note = "" if is_gpu(doc) else f" CPU busy before a run: at most {max(busy):.0%}."
         out += [
             "",
-            f"ms / step runs `llama-diffusion-cli`; the forward pass alone is mojo-dllm's measured "
-            f"forward pass against llama.cpp's `llama-bench` at the same token count (causal mask, "
-            f"logits for one position). CPU busy before a run: at most {max(busy):.0%}. "
+            f"{steps}the forward pass alone is mojo-dllm's measured forward pass against llama.cpp's "
+            f"`llama-bench` at the same token count. `llama-bench` applies a causal mask and computes "
+            f"logits for one position; mojo-dllm's figure includes logits for up to "
+            f"{c['block_length']} positions and copying the canvas in.{cpu_note} "
             f"Evidence: `bench/results/{f.name}`.",
         ]
     return "\n".join(out)

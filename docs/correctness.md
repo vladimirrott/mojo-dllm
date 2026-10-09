@@ -12,18 +12,19 @@ not share code with.
   weights; relative error under 1% with int8 activations.
 - RMSNorm, RoPE, softmax, bidirectional attention, SwiGLU: closed-form cases.
 - The forward pass of a 2-layer model with random K-quant weights: compared
-  with a numpy forward pass; relative logit error under 2% and the same argmax
-  on every position.
+  with a numpy forward pass; relative logit error under 2% on the LLaDA model
+  and under 5% on the Dream model (its large Q/K biases sharpen the softmax,
+  which amplifies int8 error), and the same argmax on every position.
 
 The GPU has its own suite, `tests/gpu/test_gpu.mojo`, which runs on a machine
 with an NVIDIA GPU (`scripts/run-gpu-tests.sh`; CI only builds it). It checks
 each GPU kernel against the CPU function it replaces, the int8 `mma` fragment
 layout against a CPU matmul, and the GPU forward pass of both tiny models
-against the numpy reference with the same 2% bound.
+against the numpy reference with a 2% bound on both models.
 
 ## 2. Tokenizer (unit tests, every commit)
 
-35 strings covering English, contractions, numbers, accents, combining marks,
+36 strings covering English, contractions, numbers, accents, combining marks,
 CJK, Cyrillic, Arabic, Devanagari, emoji, CRLF, non-breaking and em spaces,
 code, and LLaDA's chat-template special tokens. Every id matches
 `llama-tokenize` on the real LLaDA GGUF, and decoding restores the input

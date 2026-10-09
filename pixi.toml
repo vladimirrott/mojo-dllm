@@ -14,7 +14,8 @@ max-core = "==26.6.0"
 mkbuild = "mkdir -p build"
 # -Werror keeps deprecations from piling up between Mojo releases: a warning
 # today is a removed API in the next stable.
-build = { cmd = "mojo build -Werror -I src src/main.mojo -o build/mojo-dllm", depends-on = ["mkbuild"] }
+# scripts/build.sh names the GPU architecture, so machines without a GPU can build.
+build = { cmd = "MOJO=mojo bash scripts/build.sh", depends-on = ["mkbuild"] }
 test = "bash scripts/run-tests.sh"
 fmt = "mojo format -q src tests bench"
 # `mojo format` has no check mode: format in place, then require a clean diff.

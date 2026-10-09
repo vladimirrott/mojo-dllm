@@ -58,12 +58,20 @@ the canvas has settled. It does less work, so it is not a like-for-like row.
 
 ## On the GPU
 
-The GPU tables compare `mojo-dllm --device gpu` with the same
-`llama-diffusion-cli` built with CUDA and run with `-ngl 99`, so every layer
-sits on the GPU. Canvas, steps and prompts match the CPU runs. The harness
-skips its pytest watchdog for these configs (`"kill_pytest": false`): a GPU
-run leaves the CPU close to idle, so other work on the machine barely moves
-the numbers. Peak RSS is host memory; neither runtime reports GPU memory.
+`bench/config-gpu.json` and `bench/config-dream-gpu.json` compare
+`mojo-dllm --device gpu` with the same `llama-diffusion-cli` built with CUDA
+and run with `-ngl 99`; the harness refuses a CUDA run unless llama.cpp
+reports every layer on the GPU. Canvas, steps and prompts match the CPU runs.
+These configs leave the pytest watchdog off (`"kill_pytest": false`), so each
+result records how busy the CPU was before every run. Peak RSS is host memory;
+neither runtime reports GPU memory. GPU results appear in the tables above
+once a result file for them is committed.
+
+`bench/config-fair-cpu.json` and `bench/config-fair-gpu.json` address two
+questions about fairness: whether llama.cpp does better below 12 threads on a
+hybrid CPU (a sweep over `-t 4, 6, 8, 12`), and how the forward passes compare
+without either runtime's sampler (mojo-dllm's measured forward pass against
+llama.cpp's `llama-bench` at the same token count).
 
 ## Method
 
