@@ -99,6 +99,25 @@ struct ModelConfig(Copyable, ImplicitlyCopyable, Movable):
         return self.n_kv_heads * self.head_dim
 
 
+trait DenoisingModel:
+    """What the samplers need from a model, whichever device runs it."""
+
+    def config(self) -> ModelConfig:
+        """The hyperparameters read from the GGUF."""
+        ...
+
+    def logit_row(self, position: Int) -> Int:
+        """The forward-pass row whose logits score `position`."""
+        ...
+
+    def forward(
+        mut self, tokens: List[Int], out_rows: List[Int], logits: F32Ptr
+    ) raises:
+        """Logits for `out_rows` (ascending forward-pass rows), written as [len(out_rows), vocab].
+        """
+        ...
+
+
 struct Layer(Movable):
     var attn_norm: Floats
     var ffn_norm: Floats
@@ -191,7 +210,7 @@ struct Timings(Copyable, ImplicitlyCopyable, Movable):
         self.forwards = 0
 
 
-struct DiffusionLM(Movable):
+struct DiffusionLM(DenoisingModel, Movable):
     var gguf: GGUFFile
     var cfg: ModelConfig
     var layers: List[Layer]
@@ -254,6 +273,9 @@ struct DiffusionLM(Movable):
         self.qa_f = QActs(L, c.ffn)
         self.timings = Timings()
         self.load_seconds = Float64(perf_counter_ns() - t0) / 1e9
+
+    def config(self) -> ModelConfig:
+        return self.cfg
 
     def logit_row(self, position: Int) -> Int:
         """The forward-pass row whose logits score `position`."""

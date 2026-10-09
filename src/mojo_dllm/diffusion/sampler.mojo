@@ -31,7 +31,7 @@ the reference.
 from std.math import exp, log
 from std.time import perf_counter_ns
 
-from mojo_dllm.models.transformer import DiffusionLM
+from mojo_dllm.models.transformer import DenoisingModel
 from mojo_dllm.sys.mem import F32Ptr, Floats
 
 
@@ -198,28 +198,28 @@ def _gumbel_argmax(
     return best
 
 
-def generate(
-    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig
-) raises -> GenResult:
+def generate[
+    M: DenoisingModel
+](mut model: M, prompt: List[Int], cfg: GenConfig) raises -> GenResult:
     var none = NoObserver()
     return generate_observed(model, prompt, cfg, none)
 
 
 def generate_observed[
-    O: StepObserver
+    M: DenoisingModel, O: StepObserver
 ](
-    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig, mut obs: O
+    mut model: M, prompt: List[Int], cfg: GenConfig, mut obs: O
 ) raises -> GenResult:
     """Like `generate`, calling `obs.on_step` after every denoising step."""
-    if model.cfg.arch == "dream":
+    if model.config().arch == "dream":
         return _generate_dream(model, prompt, cfg, obs)
     return _generate_llada(model, prompt, cfg, obs)
 
 
 def _generate_llada[
-    O: StepObserver
+    M: DenoisingModel, O: StepObserver
 ](
-    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig, mut obs: O
+    mut model: M, prompt: List[Int], cfg: GenConfig, mut obs: O
 ) raises -> GenResult:
     if cfg.gen_length <= 0 or cfg.block_length <= 0 or cfg.steps <= 0:
         raise Error(
@@ -245,7 +245,7 @@ def _generate_llada[
     var steps_per_block = cfg.steps // num_blocks
     var P = len(prompt)
     var L = P + cfg.gen_length
-    var vocab = model.cfg.vocab
+    var vocab = model.config().vocab
     var res = GenResult()
     for t in prompt:
         res.tokens.append(t)
@@ -353,9 +353,9 @@ def _confidence(
 
 
 def _generate_dream[
-    O: StepObserver
+    M: DenoisingModel, O: StepObserver
 ](
-    mut model: DiffusionLM, prompt: List[Int], cfg: GenConfig, mut obs: O
+    mut model: M, prompt: List[Int], cfg: GenConfig, mut obs: O
 ) raises -> GenResult:
     """Dream-org/Dream `diffusion_generate`, greedy (temperature 0, alg_temp 0).
 
@@ -390,7 +390,7 @@ def _generate_dream[
         raise Error(
             "Dream needs at least one prompt token (logits are shifted)"
         )
-    var vocab = model.cfg.vocab
+    var vocab = model.config().vocab
     var res = GenResult()
     for t in prompt:
         res.tokens.append(t)
