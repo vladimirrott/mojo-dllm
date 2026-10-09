@@ -130,6 +130,7 @@ def run_mojo(c: dict, prompt: str, threads: int, extra: list[str]) -> dict:
         ms_per_step=j["ms_per_step"], forward_passes=j["forward_passes"],
         startup_s=wall - j["generate_s"], seq_len=j["prompt_tokens"] + j["gen_length"],
         prompt_tokens=j["prompt_tokens"], text=j["text"],
+        forward_ms=j.get("forward_ms"),
         gemm_ms_per_forward=j["gemm_ms_per_forward"], attention_ms_per_forward=j["attention_ms_per_forward"],
         lm_head_ms_per_forward=j["lm_head_ms_per_forward"],
     )
@@ -158,6 +159,34 @@ def run_llama(c: dict, prompt: str, threads: int, seq_len: int, cuda: bool = Fal
         ms_per_step=float(m.group(2)), forward_passes=c["steps"], startup_s=wall - total,
         seq_len=seq_len, text=text[-600:],
     )
+
+
+def run_llama_bench(c: dict, threads: int, seq_len: int, cuda: bool = False) -> dict:
+    """One forward pass over seq_len tokens, from llama.cpp's own llama-bench.
+
+    This is the kernels alone: no sampler and no logits beyond the last
+    position, against mojo-dllm's measured forward pass. llama-bench applies a
+    causal mask, which makes its attention a little cheaper than the
+    bidirectional attention a diffusion model needs.
+    """
+    build = "build-cuda" if cuda else "build"
+    cmd = [
+        c["llama_cpp"] + f"/{build}/bin/llama-bench", "-m", c["models"]["gguf"], "-p", str(seq_len),
+        "-n", "0", "-b", str(seq_len), "-ub", str(seq_len), "-t", str(threads), "-r", "3", "-o", "json",
+    ] + (["-ngl", "99"] if cuda else ["-ngl", "0"])
+    rc, out, err, wall, rss = timed(cmd)
+    try:
+        rows = json.loads(out)
+        r = rows[0]
+        if r["n_prompt"] != seq_len:
+            raise ValueError(f"llama-bench ran {r['n_prompt']} tokens, not {seq_len}")
+    except (ValueError, KeyError, IndexError) as e:
+        return dict(ok=False, rc=rc, error=f"{e}: {(err or out)[-300:]}")
+    if rc != 0:
+        return dict(ok=False, rc=rc, error=(err or out)[-400:])
+    return dict(ok=True, wall_s=wall, peak_rss_bytes=rss, forward_ms=r["avg_ns"] / 1e6,
+                forward_samples_ms=[x / 1e6 for x in r["samples_ns"]], seq_len=seq_len,
+                n_threads=r["n_threads"])
 
 
 def run_diffuse(c: dict, token_ids: str, threads: int, prompt_tokens: int, mode: str) -> dict:
@@ -257,12 +286,14 @@ def main() -> int:
             bad = [r for r in results if r["runtime"] == rt and not r["ok"]]
             summary[rt] = dict(
                 runs_ok=len(ok), runs_failed=len(bad),
-                ms_per_step_median=median_or_none([r["ms_per_step"] for r in ok]),
-                generate_s_median=median_or_none([r["generate_s"] for r in ok]),
-                tokens_per_s_median=median_or_none([c["gen_length"] / r["generate_s"] for r in ok]),
-                startup_s_median=median_or_none([r["startup_s"] for r in ok]),
+                ms_per_step_median=median_or_none([r["ms_per_step"] for r in ok if "ms_per_step" in r]),
+                generate_s_median=median_or_none([r["generate_s"] for r in ok if "generate_s" in r]),
+                tokens_per_s_median=median_or_none(
+                    [c["gen_length"] / r["generate_s"] for r in ok if "generate_s" in r]),
+                startup_s_median=median_or_none([r["startup_s"] for r in ok if "startup_s" in r]),
                 peak_rss_gb_max=max((r["peak_rss_bytes"] for r in ok), default=0) / 1e9 or None,
-                forward_passes_median=median_or_none([r["forward_passes"] for r in ok]),
+                forward_passes_median=median_or_none([r["forward_passes"] for r in ok if "forward_passes" in r]),
+                forward_ms_median=median_or_none([r["forward_ms"] for r in ok if r.get("forward_ms") is not None]),
             )
         return summary
 
@@ -317,6 +348,12 @@ def main() -> int:
                         r = run_llama(c, p, threads, seq_len)
                     elif rt == "llama.cpp-cuda":
                         r = run_llama(c, p, threads, seq_len, cuda=True)
+                    elif rt.startswith("llama.cpp:t"):
+                        r = run_llama(c, p, int(rt.removeprefix("llama.cpp:t")), seq_len)
+                    elif rt.startswith("llama-bench:t"):
+                        r = run_llama_bench(c, int(rt.removeprefix("llama-bench:t")), seq_len)
+                    elif rt == "llama-bench-cuda":
+                        r = run_llama_bench(c, threads, seq_len, cuda=True)
                     elif rt == "diffuse-cpp":
                         r = run_diffuse(c, ids, threads, n_prompt, "equal")
                     elif rt == "diffuse-cpp-cache-entropy-exit":
@@ -327,7 +364,12 @@ def main() -> int:
                              cpu_busy_before=round(load, 3), waited_s=round(waited, 1))
                     results.append(r)
                     write_doc(partial=True)
-                    status = f"{r['ms_per_step']:.0f} ms/step" if r["ok"] else f"FAILED rc={r.get('rc')}"
+                    if not r["ok"]:
+                        status = f"FAILED rc={r.get('rc')}"
+                    elif "ms_per_step" in r:
+                        status = f"{r['ms_per_step']:.0f} ms/step"
+                    else:
+                        status = f"{r['forward_ms']:.0f} ms/forward"
                     print(f"rep {rep} prompt {pi} {rt:32s} {status}  busy before {load:.1%}", flush=True)
     finally:
         wd.stop.set()

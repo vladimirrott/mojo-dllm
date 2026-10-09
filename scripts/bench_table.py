@@ -38,7 +38,7 @@ def model_label(doc: dict) -> str:
     return name
 
 
-GPU_RUNTIMES = {"mojo-dllm-gpu", "llama.cpp-cuda"}
+GPU_RUNTIMES = {"mojo-dllm-gpu", "llama.cpp-cuda", "llama-bench-cuda"}
 
 
 def is_gpu(doc: dict) -> bool:
@@ -59,6 +59,8 @@ def load() -> dict[str, dict]:
         doc = json.loads(f.read_text())
         if doc.get("partial", True):
             raise SystemExit(f"bench_table: {f.name} is a partial run; finish or delete it")
+        if doc["config"].get("kind") == "fairness":
+            continue
         gpu = is_gpu(doc)
         label = model_label(doc) + (" (GPU)" if gpu else "")
         g = groups.setdefault(label, dict(merged={}, meta={}, sources=[], gpu=gpu))
@@ -75,6 +77,66 @@ def load() -> dict[str, dict]:
         meta.setdefault("versions", {}).update(doc["versions"])
         meta.setdefault("reps", doc["reps"])
     return groups
+
+
+def fairness() -> str:
+    """Thread sweep and forward-pass-only tables from the fairness result files."""
+    files = sorted((ROOT / "bench" / "results").glob("*.json"))
+    docs = [(f, json.loads(f.read_text())) for f in files]
+    docs = [(f, d) for f, d in docs if d["config"].get("kind") == "fairness"]
+    out: list[str] = []
+    for f, doc in sorted(docs, key=lambda fd: is_gpu(fd[1])):
+        s = doc["summary"]
+        c = doc["config"]
+        m = doc["machine"]
+        label = model_label(doc)
+        seq = sorted({r["seq_len"] for r in doc["runs"] if r.get("ok")})
+        canvas = f"{seq[0]} tokens" if len(seq) == 1 else "varies"
+        runs = f"median of {doc['reps']} runs, one prompt, canvas {canvas}"
+        if out:
+            out.append("")
+        if is_gpu(doc):
+            gpu_desc = (m.get("gpu") or "unknown GPU").split(",")[0].strip()
+            out += [
+                f"**{label} on the GPU, forward pass alone**: {gpu_desc}; {runs}.",
+                "",
+                "| Runtime | ms / step | forward pass alone |",
+                "|---|---:|---:|",
+            ]
+            g = s.get("mojo-dllm-gpu")
+            lb = s.get("llama-bench-cuda")
+            if g:
+                out.append(f"| mojo-dllm `--device gpu` | {g['ms_per_step_median']:,.0f} | {g['forward_ms_median']:,.0f} ms |")
+            if lb:
+                out.append(f"| llama.cpp CUDA, `llama-bench -p {seq[0]}` | | {lb['forward_ms_median']:,.0f} ms |")
+        else:
+            out += [
+                f"**{label}, llama.cpp thread sweep and forward pass alone**: {m['cpu']}; {runs}.",
+                "",
+                "| Runtime | threads | ms / step | forward pass alone |",
+                "|---|---:|---:|---:|",
+            ]
+            mj = s.get("mojo-dllm")
+            if mj:
+                out.append(
+                    f"| mojo-dllm | {c['threads']} | {mj['ms_per_step_median']:,.0f} | {mj['forward_ms_median']:,.0f} ms |"
+                )
+            ts = sorted({int(k.split(":t")[1]) for k in s if k.startswith(("llama.cpp:t", "llama-bench:t"))})
+            for t in ts:
+                d = s.get(f"llama.cpp:t{t}")
+                lb = s.get(f"llama-bench:t{t}")
+                step = f"{d['ms_per_step_median']:,.0f}" if d and d["ms_per_step_median"] else ""
+                fwd = f"{lb['forward_ms_median']:,.0f} ms" if lb and lb["forward_ms_median"] else ""
+                out.append(f"| llama.cpp | {t} | {step} | {fwd} |")
+        busy = [r["cpu_busy_before"] for r in doc["runs"]]
+        out += [
+            "",
+            f"ms / step runs `llama-diffusion-cli`; the forward pass alone is mojo-dllm's measured "
+            f"forward pass against llama.cpp's `llama-bench` at the same token count (causal mask, "
+            f"logits for one position). CPU busy before a run: at most {max(busy):.0%}. "
+            f"Evidence: `bench/results/{f.name}`.",
+        ]
+    return "\n".join(out)
 
 
 def render() -> str:
@@ -130,6 +192,9 @@ def render() -> str:
                 "† Not the same work: the inter-step cache reuses stale K/V and `entropy_exit` can stop early. "
                 "Shown because it is diffuse-cpp's recommended mode.",
             ]
+    fair = fairness()
+    if fair:
+        out += ["", fair]
     return "\n".join(out)
 
 
