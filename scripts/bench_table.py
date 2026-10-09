@@ -133,11 +133,11 @@ def fairness() -> str:
                 fwd = f"{lb['forward_ms_median']:,.0f} ms" if lb and lb["forward_ms_median"] else ""
                 out.append(f"| llama.cpp | {t} | {step} | {fwd} |")
         busy = [r["cpu_busy_before"] for r in doc["runs"]]
-        steps = "" if is_gpu(doc) else "ms / step runs `llama-diffusion-cli`; "
+        steps = "" if is_gpu(doc) else "The ms / step column runs `llama-diffusion-cli`. "
         cpu_note = "" if is_gpu(doc) else f" CPU busy before a run: at most {max(busy):.0%}."
         out += [
             "",
-            f"{steps}the forward pass alone is mojo-dllm's measured forward pass against llama.cpp's "
+            f"{steps}The forward pass alone is mojo-dllm's measured forward pass against llama.cpp's "
             f"`llama-bench` at the same token count. `llama-bench` applies a causal mask and computes "
             f"logits for one position; mojo-dllm's figure includes logits for up to "
             f"{c['block_length']} positions and copying the canvas in.{cpu_note} "

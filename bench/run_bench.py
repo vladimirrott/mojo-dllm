@@ -160,7 +160,12 @@ def run_llama(c: dict, prompt: str, threads: int, seq_len: int, cuda: bool = Fal
     # diffusion-cli prints the timing line from inside the generator, then logs
     # the text; drop its trailing llama_perf/teardown lines.
     tail = (err + out)[m.end():]
-    text = "\n".join(l for l in tail.splitlines() if not l.startswith(("llama_", "common_", "main:"))).strip()
+    # With -v (CUDA runs) llama.cpp also prints timestamped log lines such as
+    # "0.01.487.312 D load_tensors: ..."; drop those too.
+    text = "\n".join(
+        l for l in tail.splitlines()
+        if not l.startswith(("llama_", "common_", "main:")) and not re.match(r"\d+\.\d+\.\d+\.\d+ [DIWE] ", l)
+    ).strip()
     return dict(
         ok=True, wall_s=wall, peak_rss_bytes=rss, generate_s=total,
         ms_per_step=float(m.group(2)), forward_passes=c["steps"], startup_s=wall - total,
