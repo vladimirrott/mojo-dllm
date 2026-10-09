@@ -16,7 +16,7 @@
     <linearGradient id="word" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFB45A"/><stop offset="1" stop-color="#FF6B1A"/></linearGradient>
   </defs>
   <rect width="1280" height="640" fill="#0B0F13"/>
-  <g transform="translate(110 160) scale(1.25)">
+  <g transform="translate(120 180) scale(1.09375)">
   <rect x="8" y="8" width="240" height="240" rx="48" fill="#0F1419" filter="url(#sshadow)"/>
   <g transform="translate(43 43)">
     <!-- masked cells: teal, dashed -->
@@ -55,7 +55,8 @@
     </g>
   </g>
 </g>
-  <text x="500" y="300" font-family="JetBrains Mono, Fira Code, Menlo, Consolas, monospace" font-size="84" font-weight="700" fill="#F0EFE9">mojo<tspan fill="url(#word)">-dllm</tspan></text>
-  <text x="504" y="360" font-family="Inter, Helvetica, Arial, sans-serif" font-size="34" fill="#5EEAD4">Local diffusion-LLM inference, written in Mojo</text>
-  <text x="504" y="420" font-family="Inter, Helvetica, Arial, sans-serif" font-size="26" fill="#9AA4AE">LLaDA-8B and Dream-7B from GGUF · no Python at runtime · CPU first</text>
+  <text x="450" y="292" font-family="JetBrains Mono, Fira Code, Menlo, Consolas, monospace" font-size="84" font-weight="700" fill="#F0EFE9">mojo<tspan fill="url(#word)">-dllm</tspan></text>
+  <text x="454" y="346" font-family="Inter, Helvetica, Arial, sans-serif" font-size="30" fill="#5EEAD4">Local diffusion-LLM inference, written in Mojo</text>
+  <text x="454" y="400" font-family="Inter, Helvetica, Arial, sans-serif" font-size="24" fill="#9AA4AE">LLaDA-8B and Dream-7B from GGUF files</text>
+  <text x="454" y="434" font-family="Inter, Helvetica, Arial, sans-serif" font-size="24" fill="#9AA4AE">No Python at runtime · CPU first</text>
 </svg>

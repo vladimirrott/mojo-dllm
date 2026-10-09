@@ -44,7 +44,9 @@ def wordmark() -> str:
 
 
 def social() -> str:
-    d, g = logo_group(110, 160, 320, "s")
+    # GitHub's repo card template keeps everything 80 px from each edge, so
+    # all content sits in x 80..1200, y 80..560 (checked by check_social.py).
+    d, g = logo_group(120, 180, 280, "s")
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="t">
   <title id="t">mojo-dllm: diffusion language models, in Mojo</title>
   <defs>{d}
@@ -52,9 +54,10 @@ def social() -> str:
   </defs>
   <rect width="1280" height="640" fill="#0B0F13"/>
   {g}
-  <text x="500" y="300" font-family="JetBrains Mono, Fira Code, Menlo, Consolas, monospace" font-size="84" font-weight="700" fill="#F0EFE9">mojo<tspan fill="url(#word)">-dllm</tspan></text>
-  <text x="504" y="360" font-family="Inter, Helvetica, Arial, sans-serif" font-size="34" fill="#5EEAD4">Local diffusion-LLM inference, written in Mojo</text>
-  <text x="504" y="420" font-family="Inter, Helvetica, Arial, sans-serif" font-size="26" fill="#9AA4AE">LLaDA-8B and Dream-7B from GGUF · no Python at runtime · CPU first</text>
+  <text x="450" y="292" font-family="JetBrains Mono, Fira Code, Menlo, Consolas, monospace" font-size="84" font-weight="700" fill="#F0EFE9">mojo<tspan fill="url(#word)">-dllm</tspan></text>
+  <text x="454" y="346" font-family="Inter, Helvetica, Arial, sans-serif" font-size="30" fill="#5EEAD4">Local diffusion-LLM inference, written in Mojo</text>
+  <text x="454" y="400" font-family="Inter, Helvetica, Arial, sans-serif" font-size="24" fill="#9AA4AE">LLaDA-8B and Dream-7B from GGUF files</text>
+  <text x="454" y="434" font-family="Inter, Helvetica, Arial, sans-serif" font-size="24" fill="#9AA4AE">No Python at runtime · CPU first</text>
 </svg>
 """
 
