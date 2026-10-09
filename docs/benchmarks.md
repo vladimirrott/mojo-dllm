@@ -56,6 +56,15 @@ different order, which changes the text but not the cost of a step.
 † diffuse-cpp's recommended mode reuses K/V between steps and stops early when
 the canvas has settled. It does less work, so it is not a like-for-like row.
 
+## On the GPU
+
+The GPU tables compare `mojo-dllm --device gpu` with the same
+`llama-diffusion-cli` built with CUDA and run with `-ngl 99`, so every layer
+sits on the GPU. Canvas, steps and prompts match the CPU runs. The harness
+skips its pytest watchdog for these configs (`"kill_pytest": false`): a GPU
+run leaves the CPU close to idle, so other work on the machine barely moves
+the numbers. Peak RSS is host memory; neither runtime reports GPU memory.
+
 ## Method
 
 `bench/run_bench.py` does the measuring:

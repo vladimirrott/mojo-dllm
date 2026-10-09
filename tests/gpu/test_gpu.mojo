@@ -25,6 +25,9 @@ from mojo_dllm.gpu.kernels import (
     dev_f32,
     dev_u8,
     stage_matrix,
+    dev_i8,
+    dev_i32,
+    mma_tile_gpu,
 )
 from mojo_dllm.gpu.model import GpuDiffusionLM
 from mojo_dllm.kernels.ops import (
@@ -38,7 +41,7 @@ from mojo_dllm.kernels.ops import (
 )
 from mojo_dllm.models.transformer import DiffusionLM
 from mojo_dllm.quant.kquants import dequant_row
-from mojo_dllm.sys.mem import F32Ptr, U8Ptr, Floats, Bytes
+from mojo_dllm.sys.mem import F32Ptr, I8Ptr, I32Ptr, U8Ptr, Floats, Bytes
 from mojo_dllm.sys.mmap import Mapping
 
 comptime FIX = "tests/fixtures/"
@@ -191,6 +194,48 @@ def test_elementwise_ops_match_cpu() raises:
     assert_true(
         _max_abs(got, g) < 1e-4, "elementwise " + String(_max_abs(got, g))
     )
+
+
+def _check_mma(K: Int) raises:
+    var ctx = DeviceContext()
+    var ha = Bytes(16 * K)
+    var hb = Bytes(8 * K)
+    var s = UInt64(12345 + K)
+    for i in range(16 * K):
+        s = s * 6364136223846793005 + 1442695040888963407
+        ha.i8()[unsafe_offset=i] = Int8(Int((s >> 33) % 255) - 127)
+    for i in range(8 * K):
+        s = s * 6364136223846793005 + 1442695040888963407
+        hb.i8()[unsafe_offset=i] = Int8(Int((s >> 33) % 255) - 127)
+    var da = ctx.enqueue_create_buffer[DType.int8](16 * K)
+    var db = ctx.enqueue_create_buffer[DType.int8](8 * K)
+    var dc = ctx.enqueue_create_buffer[DType.int32](128)
+    ctx.enqueue_copy(da, ha.i8())
+    ctx.enqueue_copy(db, hb.i8())
+    mma_tile_gpu(ctx, K, dev_i8(da), dev_i8(db), dev_i32(dc))
+    var hc = Bytes(512)
+    ctx.enqueue_copy(hc.i32(), dc)
+    ctx.synchronize()
+    for m in range(16):
+        for n in range(8):
+            var want = 0
+            for k in range(K):
+                want += Int(ha.i8()[unsafe_offset=m * K + k]) * Int(
+                    hb.i8()[unsafe_offset=n * K + k]
+                )
+            assert_equal(
+                Int(hc.i32()[unsafe_offset=m * 8 + n]),
+                want,
+                "k" + String(K) + " C[" + String(m) + ", " + String(n) + "]",
+            )
+
+
+def test_mma_k32_fragment_layout() raises:
+    _check_mma(32)
+
+
+def test_mma_k16_fragment_layout() raises:
+    _check_mma(16)
 
 
 def _check_gemm(name: String, n_tokens: Int) raises:

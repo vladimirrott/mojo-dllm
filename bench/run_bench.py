@@ -14,7 +14,9 @@ Measurement hygiene, all recorded in the output:
   * each run starts only when the 1-minute load average is below a threshold;
   * a watchdog kills any process named exactly `pytest` while the benchmark
     runs (other sessions on this machine launch test suites that would
-    otherwise compete for the CPU) and logs every kill;
+    otherwise compete for the CPU) and logs every kill. A config can turn it
+    off with "kill_pytest": false, as the GPU configs do: a GPU run barely
+    touches the CPU, and killing someone's tests for it is not worth it;
   * the power profile is set to `performance` and restored on exit.
 
 Nothing here estimates a number. A run that fails or prints no timing is
@@ -133,13 +135,15 @@ def run_mojo(c: dict, prompt: str, threads: int, extra: list[str]) -> dict:
     )
 
 
-def run_llama(c: dict, prompt: str, threads: int, seq_len: int) -> dict:
+def run_llama(c: dict, prompt: str, threads: int, seq_len: int, cuda: bool = False) -> dict:
+    """llama.cpp's diffusion example; with cuda, the build-cuda tree and every layer offloaded."""
+    build = "build-cuda" if cuda else "build"
     cmd = [
-        c["llama_cpp"] + "/build/bin/llama-diffusion-cli", "-m", c["models"]["gguf"], "-p", prompt,
+        c["llama_cpp"] + f"/{build}/bin/llama-diffusion-cli", "-m", c["models"]["gguf"], "-p", prompt,
         "-c", str(seq_len), "-b", str(seq_len), "-ub", str(seq_len),
         "--diffusion-steps", str(c["steps"]), "--diffusion-eps", "0.001",
         "--temp", "0", "-t", str(threads), "-tb", str(threads), "--seed", "42",
-    ]
+    ] + (["-ngl", "99"] if cuda else [])
     rc, out, err, wall, rss = timed(cmd)
     m = re.search(r"total time: ([0-9.]+)ms, time per step: ([0-9.]+)ms", err + out)
     if rc != 0 or not m:
@@ -233,6 +237,7 @@ def main() -> int:
 
     kills: list[dict] = []
     wd = Watchdog("pytest", kills)
+    kill_pytest = c.get("kill_pytest", True)
     profile_before = sh("powerprofilesctl get")
     results: list[dict] = []
     out_path = pathlib.Path(args.out or ROOT / f"bench/results/{dt.date.today().isoformat()}-cpu.json")
@@ -268,7 +273,9 @@ def main() -> int:
             date=dt.datetime.now().isoformat(timespec="seconds"),
             machine=dict(cpu=sh("lscpu | sed -n 's/^Model name:\\s*//p'"), kernel=platform.release(),
                          ram_gb=round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9, 1),
-                         power_profile="performance", logical_cpus=os.cpu_count()),
+                         power_profile="performance", logical_cpus=os.cpu_count(),
+                         gpu=sh("nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader")
+                         or None),
             versions=versions,
             config=json.loads(pathlib.Path(args.config).read_text()), reps=args.reps, summary=summary,
             watchdog_kills=kills, runs=results,
@@ -282,7 +289,8 @@ def main() -> int:
     signal.signal(signal.SIGTERM, on_term)
     try:
         subprocess.run(["powerprofilesctl", "set", "performance"], check=True)
-        wd.start()
+        if kill_pytest:
+            wd.start()
         threads = c["threads"]
         tok_cache: dict[str, tuple[str, int]] = {}
         for p in c["prompts"]:
@@ -301,10 +309,14 @@ def main() -> int:
                     t_start = dt.datetime.now().isoformat(timespec="seconds")
                     if rt == "mojo-dllm":
                         r = run_mojo(c, p, threads, [])
+                    elif rt == "mojo-dllm-gpu":
+                        r = run_mojo(c, p, threads, ["--device", "gpu"])
                     elif rt == "mojo-dllm-full-logits":
                         r = run_mojo(c, p, threads, ["--full-logits"])
                     elif rt == "llama.cpp":
                         r = run_llama(c, p, threads, seq_len)
+                    elif rt == "llama.cpp-cuda":
+                        r = run_llama(c, p, threads, seq_len, cuda=True)
                     elif rt == "diffuse-cpp":
                         r = run_diffuse(c, ids, threads, n_prompt, "equal")
                     elif rt == "diffuse-cpp-cache-entropy-exit":
@@ -323,7 +335,7 @@ def main() -> int:
 
     summary = write_doc(partial=False)
     print(json.dumps(summary, indent=2))
-    print(f"watchdog killed {len(kills)} pytest process(es)")
+    print(f"watchdog killed {len(kills)} pytest process(es)" if kill_pytest else "watchdog off (kill_pytest: false)")
     print(f"wrote {out_path}")
     failed = sum(s["runs_failed"] for s in summary.values())
     return 1 if failed else 0

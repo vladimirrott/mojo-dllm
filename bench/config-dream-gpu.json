@@ -1,0 +1,23 @@
+{
+  "models": {
+    "gguf": "~/models/dream/Dream-v0-Instruct-7B-Q4_K_M.gguf"
+  },
+  "llama_cpp": "~/src/llama.cpp",
+  "diffuse_cpp": "~/src/diffuse-cpp",
+  "runtimes": [
+    "mojo-dllm-gpu",
+    "llama.cpp-cuda"
+  ],
+  "prompts": [
+    "Explain speculative decoding in two sentences.",
+    "Write a short Python function that checks whether a number is prime.",
+    "List three differences between diffusion language models and autoregressive language models."
+  ],
+  "gen_length": 128,
+  "steps": 32,
+  "block_length": 32,
+  "threads": 12,
+  "busy_threshold": 0.1,
+  "max_quiet_wait_s": 300,
+  "kill_pytest": false
+}

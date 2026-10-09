@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-09T08:41:03",
+  "arch": "llada",
+  "device": "gpu",
+  "model": "LLaDA-8B-Instruct.Q4_K_M.gguf",
+  "versions": {
+    "mojo-dllm": "4cfc3ee"
+  },
+  "reference": "llama.cpp libllama via tools/ref/llada_ref.cpp",
+  "logits": [
+    {
+      "prompt": "Explain speculative decoding in two sentences.",
+      "seq_len": 64,
+      "rows": 64,
+      "min_cosine": 0.9960136463791198,
+      "median_cosine": 0.9998074128767876,
+      "masked_median_cosine": 0.9998250242580089,
+      "max_rel_rms": 0.09455822820539818,
+      "median_rel_rms": 0.0207400068078617,
+      "argmax_agree": 62,
+      "mean_top5_overlap": 4.765625,
+      "worst_rows": [
+        13,
+        4,
+        18
+      ]
+    },
+    {
+      "prompt": "List three differences between diffusion language models and autoregressive language models.",
+      "seq_len": 126,
+      "rows": 126,
+      "min_cosine": 0.9983696926034193,
+      "median_cosine": 0.9998756788357779,
+      "masked_median_cosine": 0.9998832813286584,
+      "max_rel_rms": 0.08800833161156338,
+      "median_rel_rms": 0.01718932830121457,
+      "argmax_agree": 120,
+      "mean_top5_overlap": 4.738095238095238,
+      "worst_rows": [
+        24,
+        19,
+        2
+      ]
+    }
+  ],
+  "generation": [
+    {
+      "prompt": "Explain speculative decoding in two sentences.",
+      "gen_length": 32,
+      "block_length": 32,
+      "steps": 32,
+      "matching_tokens": 8,
+      "first_divergence": 5,
+      "mojo_text": "Speculative decoding is a process where a person makes educated guesses about the meaning of a message based on available information, rather than relying on direct interpretation."
+    },
+    {
+      "prompt": "Write a short Python function that checks whether a number is prime.",
+      "gen_length": 64,
+      "block_length": 32,
+      "steps": 32,
+      "matching_tokens": 64,
+      "first_divergence": null,
+      "mojo_text": "def is_prime(n):\n    if n <= 1:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True"
+    }
+  ]
+}

@@ -6,6 +6,21 @@ semantic versioning (0.y: minor bumps may break things).
 
 ## [Unreleased]
 
+### Added
+
+- NVIDIA GPU backend, `--device gpu`, for compute capability 8.0 and newer.
+  Projections read the GGUF Q4_K / Q6_K blocks on the GPU and multiply on the
+  int8 tensor cores; attention runs flash-style. GPU tests check each kernel
+  against its CPU twin, and the parity harness takes `--device gpu`.
+- `MOJO_DLLM_GPU_PROFILE=1` splits `--verbose` timings on the GPU.
+- `bench/config-gpu.json` and `bench/config-dream-gpu.json`, against
+  llama.cpp built with CUDA.
+
+### Changed
+
+- The samplers' per-row confidence pass runs on `--threads` workers. Each
+  row's arithmetic is unchanged, so tokens do not depend on the thread count.
+
 ## [0.1.0] - 2026-10-04
 
 First release: CPU inference for two diffusion language models from GGUF.

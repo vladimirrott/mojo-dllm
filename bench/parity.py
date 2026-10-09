@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Logit and generation parity between mojo-dllm and llama.cpp on a real model.
 
-usage: python3 bench/parity.py --model MODEL.gguf [--ref build/llada_ref] [--threads 12]
+usage: python3 bench/parity.py --model MODEL.gguf [--ref build/llada_ref] [--threads 12] [--device cpu|gpu]
+                              [--ref2 build/llada_ref_cuda --ref2-label "llama.cpp CUDA"]
+
+--ref2 adds a second reference for the logits only: the result then also
+records mojo-dllm against it and the two references against each other, which
+shows how far two builds of llama.cpp disagree on the same model.
 
 Writes bench/parity/<date>.json. scripts/bench_table.py renders it into
 docs/correctness.md. Requires build/mojo-dllm and build/llada_ref
@@ -75,6 +80,9 @@ def main() -> int:
     ap.add_argument("--ref", default=str(ROOT / "build/llada_ref"))
     ap.add_argument("--threads", default="12")
     ap.add_argument("--arch", choices=sorted(SPECS), default="llada")
+    ap.add_argument("--device", choices=["cpu", "gpu"], default="cpu")
+    ap.add_argument("--ref2", default=None, help="a second reference binary, logits only")
+    ap.add_argument("--ref2-label", default="llama.cpp CUDA")
     args = ap.parse_args()
     VOCAB = SPECS[args.arch]["vocab"]
     MASK = SPECS[args.arch]["mask"]
@@ -88,22 +96,31 @@ def main() -> int:
             rows = list(range(L))
             tcsv = ",".join(map(str, toks))
             rcsv = ",".join(map(str, rows))
-            a, b = f"{tmp}/mojo.f32", f"{tmp}/ref.f32"
+            a, b, b2 = f"{tmp}/mojo.f32", f"{tmp}/ref.f32", f"{tmp}/ref2.f32"
             run([str(ROOT / "build/mojo-dllm"), "logits", "--model", args.model, "--tokens", tcsv,
-                 "--rows", rcsv, "--out", a, "--threads", args.threads])
+                 "--rows", rcsv, "--out", a, "--threads", args.threads, "--device", args.device])
             run([args.ref, "logits", args.model, tcsv, rcsv, b, args.threads])
             x = np.fromfile(a, dtype=np.float32).reshape(-1, VOCAB).astype(np.float64)
             y = np.fromfile(b, dtype=np.float32).reshape(-1, VOCAB).astype(np.float64)
             if x.size == 0 or x.shape != y.shape:
                 raise SystemExit("refusing: logit dumps are empty or differ in shape")
-            logits.append(dict(prompt=case.prompt, seq_len=L, **compare(x, y, len(toks) - case.masks)))
+            first = len(toks) - case.masks
+            entry = dict(prompt=case.prompt, seq_len=L, **compare(x, y, first))
+            if args.ref2:
+                run([args.ref2, "logits", args.model, tcsv, rcsv, b2, args.threads])
+                z = np.fromfile(b2, dtype=np.float32).reshape(-1, VOCAB).astype(np.float64)
+                if z.shape != y.shape:
+                    raise SystemExit("refusing: the second reference's dump differs in shape")
+                entry["vs_ref2"] = compare(x, z, first)
+                entry["ref_vs_ref2"] = compare(y, z, first)
+            logits.append(entry)
             print("logits", logits[-1])
     gens = []
     for case in GEN_CASES:
         toks = tokenize(args.model, case.prompt)
         out = run([str(ROOT / "build/mojo-dllm"), "run", "--model", args.model, "--prompt", case.prompt,
                    "--max-tokens", str(case.gen), "--block-length", str(case.block),
-                   "--steps", str(case.steps), "--threads", args.threads, "--json"])
+                   "--steps", str(case.steps), "--threads", args.threads, "--device", args.device, "--json"])
         j = json.loads(next(l for l in out.splitlines() if l.startswith("{")))
         mine = j["tokens"][len(toks):]
         if args.arch == "dream":
@@ -121,11 +138,13 @@ def main() -> int:
                          steps=case.steps, matching_tokens=same, first_divergence=first,
                          mojo_text=j["text"]))
         print("generate", gens[-1])
-    doc = dict(date=dt.datetime.now().isoformat(timespec="seconds"), arch=args.arch,
+    doc = dict(date=dt.datetime.now().isoformat(timespec="seconds"), arch=args.arch, device=args.device,
                model=pathlib.Path(args.model).name,
                versions={"mojo-dllm": run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"]).strip()},
                reference="llama.cpp libllama via tools/ref/llada_ref.cpp", logits=logits, generation=gens)
-    out = ROOT / "bench" / "parity" / f"{dt.date.today().isoformat()}-{args.arch}.json"
+    if args.ref2:
+        doc["reference2"] = args.ref2_label
+    out = ROOT / "bench" / "parity" / f"{dt.date.today().isoformat()}-{args.arch}{'-gpu' if args.device == 'gpu' else ''}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
     print(f"wrote {out.relative_to(ROOT)}")

@@ -4,7 +4,7 @@
 mojo-dllm run      --model PATH --prompt TEXT [options]
 mojo-dllm tokenize --model PATH --prompt TEXT [--no-chat]
 mojo-dllm inspect  PATH
-mojo-dllm logits   --model PATH --tokens IDS --rows POSITIONS --out FILE [--threads N]
+mojo-dllm logits   --model PATH --tokens IDS --rows POSITIONS --out FILE [--threads N] [--device D]
 ```
 
 ## `run`
@@ -19,7 +19,8 @@ mojo-dllm logits   --model PATH --tokens IDS --rows POSITIONS --out FILE [--thre
 | `--temperature T` | 0 | 0 is greedy; above 0 adds Gumbel noise as LLaDA does |
 | `--remasking S` | `low_confidence` | LLaDA: `low_confidence` or `random`. Dream: `entropy` (the default), `maskgit_plus`, `topk_margin` |
 | `--seed N` | 42 | seeds this program's PRNG (it does not reproduce a PyTorch run) |
-| `--threads N` | all logical CPUs | worker threads |
+| `--threads N` | all logical CPUs | worker threads (with `--device gpu`, only the sampler uses them) |
+| `--device D` | `cpu` | `cpu`, or `gpu` for an NVIDIA GPU with compute capability 8.0 or newer |
 | `--no-chat` | off | skip the chat template |
 | `--full-logits` | off | compute logits for every position, as a generic runtime would (for benchmarking) |
 | `--visual` | off | redraw the canvas after every step: masked positions as teal blocks, tokens committed in that step in bold orange |
@@ -54,4 +55,9 @@ ERROR: unsupported GGUF tensor type: IQ2_XXS
 ERROR: unsupported model architecture: qwen2
 ERROR: required metadata key missing: tokenizer.ggml.model
 ERROR: tensor shape mismatch for blk.0.attn_q.weight: [4096, 2048], expected [4096, 4096]
+ERROR: no GPU found: the GPU backend needs an NVIDIA GPU with compute capability 8.0 or newer (run with --device cpu)
 ```
+
+With `--device gpu`, setting `MOJO_DLLM_GPU_PROFILE=1` makes `--verbose` split
+a step into GEMM, attention and LM head time. It synchronizes the GPU after
+each kernel group to measure them, so leave it off when you benchmark.

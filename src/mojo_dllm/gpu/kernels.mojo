@@ -848,6 +848,65 @@ def _q6k_mma_kernel(
     _store_tile(acc, dst, Int(ldo), r0, t0, n_rows, n_tok, warp, g, t)
 
 
+def _mma_tile32_kernel(a: I8Ptr, b: I8Ptr, c: I32Ptr):
+    # A 16x32 row-major, B as 8 token rows of 32: the layout gemm_gpu stages.
+    var l = Int(lane_id())
+    var g = l >> 2
+    var t = l & 3
+    var aw = a.unsafe_bitcast[Int32]()
+    var bw = b.unsafe_bitcast[Int32]()
+    var r = _mma_k32(
+        aw[unsafe_offset=g * 8 + t],
+        aw[unsafe_offset=(g + 8) * 8 + t],
+        aw[unsafe_offset=g * 8 + 4 + t],
+        aw[unsafe_offset=(g + 8) * 8 + 4 + t],
+        bw[unsafe_offset=g * 8 + t],
+        bw[unsafe_offset=g * 8 + 4 + t],
+    )
+    _store_tile_c(c, g, t, r)
+
+
+def _mma_tile16_kernel(a: I8Ptr, b: I8Ptr, c: I32Ptr):
+    var l = Int(lane_id())
+    var g = l >> 2
+    var t = l & 3
+    var aw = a.unsafe_bitcast[Int32]()
+    var bw = b.unsafe_bitcast[Int32]()
+    var r = _mma_k16(
+        aw[unsafe_offset=g * 4 + t],
+        aw[unsafe_offset=(g + 8) * 4 + t],
+        bw[unsafe_offset=g * 4 + t],
+    )
+    _store_tile_c(c, g, t, r)
+
+
+def _store_tile_c(c: I32Ptr, g: Int, t: Int, r: SIMD[DType.int32, 4]):
+    c[unsafe_offset=g * 8 + 2 * t] = r[0]
+    c[unsafe_offset=g * 8 + 2 * t + 1] = r[1]
+    c[unsafe_offset=(g + 8) * 8 + 2 * t] = r[2]
+    c[unsafe_offset=(g + 8) * 8 + 2 * t + 1] = r[3]
+
+
+def mma_tile_gpu(
+    ctx: DeviceContext, K: Int, a: I8Ptr, b: I8Ptr, c: I32Ptr
+) raises:
+    """One 16 x 8 int8 tile, c = a (16 x K) times b (8 x K) transposed, K = 32 or 16.
+
+    It goes through the same fragment loads the GEMM uses. tests/gpu checks it
+    against a CPU matmul, which pins the PTX fragment layout.
+    """
+    if K == 32:
+        ctx.enqueue_function[_mma_tile32_kernel](
+            a, b, c, grid_dim=1, block_dim=32
+        )
+    elif K == 16:
+        ctx.enqueue_function[_mma_tile16_kernel](
+            a, b, c, grid_dim=1, block_dim=32
+        )
+    else:
+        raise Error("mma_tile_gpu takes K = 32 or 16")
+
+
 def gemm_gpu(
     ctx: DeviceContext,
     ggml_type: Int,

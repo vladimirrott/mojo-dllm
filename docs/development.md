@@ -24,6 +24,13 @@ The hooks run `scripts/ci-local.sh --fast` before each commit (hygiene scan,
 | claims | `scripts/bench_table.py --check` | a benchmark table differs from what `bench/results/*.json` renders |
 | docs | `mdbook build` + `scripts/check_links.py` | a relative link is broken |
 | action pins | `scripts/verify-action-pins.sh` (CI) | a pinned SHA is not the tag its comment names |
+| no GPU | `scripts/check_no_gpu.sh` | `--device gpu` without a GPU does anything but exit 1 with a message |
+| GPU tests | `scripts/run-gpu-tests.sh` (local only) | a GPU kernel or the GPU forward pass disagrees with the CPU or the f32 reference, or the count differs from `tests/gpu/test-count.txt` |
+
+GitHub's runners have no GPU, so CI builds the GPU suite without running it.
+`ci-local.sh` runs it when `nvidia-smi` lists a GPU and otherwise prints a
+`SKIP` line, never a `PASS`; `run-gpu-tests.sh` on its own exits 1 without a
+GPU.
 
 The test count is pinned because Mojo's `TestSuite` exits 0 after running zero
 tests. If you add tests, run `UPDATE_TEST_COUNT=1 scripts/run-tests.sh` and
@@ -39,6 +46,10 @@ live in `tests/fixtures/` and come from scripts, never from hand:
 | `kquants.gguf`, `tiny-llada.gguf`, `tiny-llada.expected.f32` | `scripts/gen_fixtures.py` | GGUF parsing, decoders, the forward pass against a numpy reference |
 | `llada-tokenizer.gguf`, `tokenizer-golden.tsv` | `scripts/gen_tokenizer_fixture.py` | tokenizer ids against `llama-tokenize` |
 | `src/mojo_dllm/tokenizer/unicode_tables.mojo` | `scripts/gen_unicode_tables.py` | code point classes from llama.cpp's own tables |
+
+`tests/gpu/test_gpu.mojo` holds the GPU tests: each kernel against the CPU
+function it replaces, and the GPU forward pass on both tiny models against the
+f32 reference.
 
 The tiny model is 2 layers of hidden size 256 with random K-quant blocks. Its
 expected logits come from a float numpy forward pass over the weights that
@@ -57,8 +68,16 @@ checkouts. The harness waits for an idle CPU before each run, interleaves the
 runtimes, switches the power profile to `performance` for the duration, and
 writes a result file with every raw run. It also kills any process named
 `pytest` while it runs, because test suites from other work on the
-development machine kept starting mid-benchmark; edit `Watchdog` in
-`bench/run_bench.py` if that is not what you want on your machine.
+development machine kept starting mid-benchmark. Set `"kill_pytest": false`
+in a config to turn that off; the GPU configs (`bench/config-gpu.json`,
+`bench/config-dream-gpu.json`) do, since a GPU run leaves the CPU nearly idle.
+They compare `--device gpu` with llama.cpp's diffusion example built with
+CUDA in `build-cuda/`:
+
+```bash
+cmake -B build-cuda -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=86
+cmake --build build-cuda --target llama-diffusion-cli
+```
 
 ## Toolchain
 
