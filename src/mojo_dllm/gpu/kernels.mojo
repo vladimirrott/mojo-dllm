@@ -22,7 +22,11 @@ from std.sys.intrinsics import _RegisterPackType
 
 from max.gpu import barrier, block_dim, block_idx, lane_id, thread_idx, warp_id
 from max.gpu.host import DeviceBuffer, DeviceContext
-from max.gpu.primitives.warp import max as warp_max, sum as warp_sum
+from max.gpu.primitives.warp import (
+    max as warp_max,
+    shuffle_idx,
+    sum as warp_sum,
+)
 
 from mojo_dllm.formats.gguf import GGML_Q4_K, GGML_Q6_K, ggml_type_name
 from mojo_dllm.sys.mem import F32Ptr, I8Ptr, I32Ptr, U8Ptr
@@ -32,9 +36,6 @@ comptime QK = 32
 comptime Q4K_BYTES = 144
 comptime Q6K_BYTES = 210
 comptime Q6K_STAGED = 212
-comptime MAX_ATTN_L = 4096
-"""Longest canvas the attention kernel's shared score row holds."""
-comptime MAX_HEAD_DIM = 256
 comptime NT = 256
 comptime SharedF32 = Pointer[
     Float32, MutUntrackedOrigin, address_space=AddressSpace.SHARED
@@ -84,18 +85,6 @@ def _block_sum(v: Float32, red: SharedF32) -> Float32:
     var t = Float32(0)
     for w in range(NT // 32):
         t += red[unsafe_offset=w]
-    barrier()
-    return t
-
-
-def _block_max(v: Float32, red: SharedF32) -> Float32:
-    var s = warp_max(v)
-    if lane_id() == 0:
-        red[unsafe_offset=Int(warp_id())] = s
-    barrier()
-    var t = red[unsafe_offset=0]
-    for w in range(1, NT // 32):
-        t = max(t, red[unsafe_offset=w])
     barrier()
     return t
 
@@ -194,8 +183,15 @@ def rope_gpu(
 
 # ---------------------------------------------------------------- attention
 
+comptime QT = 16
+"""Queries per attention block; they share every K/V tile the block loads."""
+comptime KT = 32
+"""Keys per shared-memory tile: one per lane when scoring."""
 
-def _attention_kernel(
+
+def _attention_kernel[
+    HD: Int
+](
     q: F32Ptr,
     k: F32Ptr,
     v: F32Ptr,
@@ -203,66 +199,91 @@ def _attention_kernel(
     L: Int32,
     heads: Int32,
     kv_heads: Int32,
-    hd: Int32,
     scale: Float32,
 ):
-    """One block per (query, head). Scores live in shared memory, so the
-    weighted sum over V reads them once per output dimension."""
-    var qs = unsafe_stack_allocation[
-        MAX_HEAD_DIM, Float32, address_space=AddressSpace.SHARED
+    """Flash-style attention: QT queries of one head walk the keys a tile at a
+    time with an online softmax, so K and V are read once per QT queries and
+    no score row is ever stored.
+
+    Warp w owns queries 2w and 2w+1 of the tile. Scoring puts key j on lane j;
+    the weighted sum puts output dimensions lane + 32i on lane.
+    """
+    comptime DL = HD // 32
+    var sQ = unsafe_stack_allocation[
+        QT * HD, Float32, address_space=AddressSpace.SHARED
     ]()
-    var sc = unsafe_stack_allocation[
-        MAX_ATTN_L, Float32, address_space=AddressSpace.SHARED
+    # K rows padded to HD + 1 floats, so lane j reading row j hits bank j.
+    var sK = unsafe_stack_allocation[
+        KT * (HD + 1), Float32, address_space=AddressSpace.SHARED
     ]()
-    var red = unsafe_stack_allocation[
-        NT // 32, Float32, address_space=AddressSpace.SHARED
+    var sV = unsafe_stack_allocation[
+        KT * HD, Float32, address_space=AddressSpace.SHARED
     ]()
     var n = Int(L)
-    var d = Int(hd)
-    var qi = Int(block_idx.x)
     var h = Int(block_idx.y)
+    var q0 = Int(block_idx.x) * QT
     var kvh = h // (Int(heads) // Int(kv_heads))
-    var stride = Int(heads) * d
-    var kv_stride = Int(kv_heads) * d
-    var tid = Int(thread_idx.x)
-    var qrow = q.unsafe_offset(qi * stride + h * d)
-    var i = tid
-    while i < d:
-        qs[unsafe_offset=i] = qrow[unsafe_offset=i]
-        i += NT
-    barrier()
-    var local_max = Float32.MIN
-    var j = tid
-    while j < n:
-        var kr = k.unsafe_offset(j * kv_stride + kvh * d)
-        var acc = Float32(0)
-        for e in range(d):
-            acc += qs[unsafe_offset=e] * kr[unsafe_offset=e]
-        acc *= scale
-        sc[unsafe_offset=j] = acc
-        local_max = max(local_max, acc)
-        j += NT
-    var m = _block_max(local_max, red)
-    var local_sum = Float32(0)
-    j = tid
-    while j < n:
-        var e = exp(sc[unsafe_offset=j] - m)
-        sc[unsafe_offset=j] = e
-        local_sum += e
-        j += NT
-    var total = _block_sum(local_sum, red)
-    var inv = 1.0 / total
-    var orow = o.unsafe_offset(qi * stride + h * d)
-    i = tid
-    while i < d:
-        var acc = Float32(0)
-        for jj in range(n):
-            acc += (
-                sc[unsafe_offset=jj]
-                * v[unsafe_offset=jj * kv_stride + kvh * d + i]
-            )
-        orow[unsafe_offset=i] = acc * inv
-        i += NT
+    var stride = Int(heads) * HD
+    var kv_stride = Int(kv_heads) * HD
+    var th = Int(thread_idx.x)
+    var lane = Int(lane_id())
+    var warp = Int(warp_id())
+    comptime for i in range(QT * HD // NT):
+        var idx = th + i * NT
+        var qi = idx // HD
+        var val = Float32(0)
+        if q0 + qi < n:
+            val = q[unsafe_offset=(q0 + qi) * stride + h * HD + idx % HD]
+        sQ[unsafe_offset=idx] = val
+    var m = SIMD[DType.float32, 2](Float32.MIN)
+    var l = SIMD[DType.float32, 2](0)
+    var acc = SIMD[DType.float32, 2 * DL](0)
+    var kt = 0
+    while kt < n:
+        barrier()
+        comptime for i in range(KT * HD // NT):
+            var idx = th + i * NT
+            var j = idx // HD
+            var d = idx % HD
+            var kv_ = Float32(0)
+            var vv = Float32(0)
+            if kt + j < n:
+                var src = (kt + j) * kv_stride + kvh * HD + d
+                kv_ = k[unsafe_offset=src]
+                vv = v[unsafe_offset=src]
+            sK[unsafe_offset=j * (HD + 1) + d] = kv_
+            sV[unsafe_offset=idx] = vv
+        barrier()
+        var valid = kt + lane < n
+        comptime for e in range(2):
+            var qrow = sQ.unsafe_offset((2 * warp + e) * HD)
+            var krow = sK.unsafe_offset(lane * (HD + 1))
+            var s = Float32(0)
+            for d in range(HD):
+                s += qrow[unsafe_offset=d] * krow[unsafe_offset=d]
+            s = s * scale if valid else Float32.MIN
+            var m_new = max(m[e], warp_max(s))
+            var p = exp(s - m_new) if valid else Float32(0)
+            var corr = exp(m[e] - m_new)
+            l[e] = l[e] * corr + warp_sum(p)
+            m[e] = m_new
+            comptime for i in range(DL):
+                acc[e * DL + i] *= corr
+            for jj in range(KT):
+                var pj = shuffle_idx(p, UInt32(jj))
+                comptime for i in range(DL):
+                    acc[e * DL + i] += (
+                        pj * sV[unsafe_offset=jj * HD + lane + 32 * i]
+                    )
+        kt += KT
+    comptime for e in range(2):
+        var qi = q0 + 2 * warp + e
+        if qi < n:
+            var inv = 1.0 / l[e]
+            comptime for i in range(DL):
+                o[unsafe_offset=qi * stride + h * HD + lane + 32 * i] = (
+                    acc[e * DL + i] * inv
+                )
 
 
 def attention_gpu(
@@ -276,29 +297,24 @@ def attention_gpu(
     kv_heads: Int,
     head_dim: Int,
 ) raises:
-    if L > MAX_ATTN_L:
-        raise Error(
-            "GPU attention holds at most "
-            + String(MAX_ATTN_L)
-            + " positions, got "
-            + String(L)
-        )
-    if head_dim > MAX_HEAD_DIM:
-        raise Error("GPU attention needs a head dimension of at most 256")
     var scale = Float32(1.0 / sqrt(Float64(head_dim)))
-    ctx.enqueue_function[_attention_kernel](
-        q,
-        k,
-        v,
-        o,
-        Int32(L),
-        Int32(heads),
-        Int32(kv_heads),
-        Int32(head_dim),
-        scale,
-        grid_dim=(L, heads),
-        block_dim=NT,
-    )
+    var grid = (_cdiv(L, QT), heads)
+    var Li = Int32(L)
+    var hi = Int32(heads)
+    var kvi = Int32(kv_heads)
+    if head_dim == 128:
+        ctx.enqueue_function[_attention_kernel[128]](
+            q, k, v, o, Li, hi, kvi, scale, grid_dim=grid, block_dim=NT
+        )
+    elif head_dim == 64:
+        ctx.enqueue_function[_attention_kernel[64]](
+            q, k, v, o, Li, hi, kvi, scale, grid_dim=grid, block_dim=NT
+        )
+    else:
+        raise Error(
+            "GPU attention supports head dimensions 64 and 128, got "
+            + String(head_dim)
+        )
 
 
 # ---------------------------------------------------------------- elementwise

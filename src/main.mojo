@@ -194,6 +194,7 @@ def cmd_run(a: Args) raises:
     cfg.temperature = a.float_or("temperature", 0.0)
     cfg.remasking = a.get_or("remasking", "low_confidence")
     cfg.full_logits = a.has("full-logits")
+    cfg.threads = threads
     var t0 = perf_counter_ns()
     var g = GGUFFile(a.get("model"))
     var tok = Tokenizer(g)
@@ -362,7 +363,9 @@ def _run[
         print(
             "per step:",
             res.seconds * 1000.0 / Float64(max(res.forward_passes, 1)),
-            "ms",
+            "ms   (forward pass",
+            Float64(tm.total_ns) / 1e6 / fw,
+            "ms)",
         )
         print(
             "  gemm",

@@ -32,7 +32,8 @@ from std.math import exp, log
 from std.time import perf_counter_ns
 
 from mojo_dllm.models.transformer import DenoisingModel
-from mojo_dllm.sys.mem import F32Ptr, Floats
+from mojo_dllm.sys.mem import Bytes, F32Ptr, Floats
+from mojo_dllm.sys.parallel import parallel_for
 
 
 struct GenConfig(Copyable, Movable):
@@ -46,6 +47,9 @@ struct GenConfig(Copyable, Movable):
     var full_logits: Bool
     var eps: Float64
     """Dream's final timestep: timesteps run linspace(1, eps, steps + 1)."""
+    var threads: Int
+    """Workers for the per-row confidence pass; each row's arithmetic is the
+    same whatever the count, so results do not depend on it."""
 
     def __init__(out self):
         self.gen_length = 128
@@ -57,6 +61,7 @@ struct GenConfig(Copyable, Movable):
         self.mask_id = 126336
         self.full_logits = False
         self.eps = 1e-3
+        self.threads = 1
 
 
 struct GenResult(Movable):
@@ -198,6 +203,45 @@ def _gumbel_argmax(
     return best
 
 
+def _greedy_rows(
+    logits: F32Ptr,
+    row_of: List[Int],
+    vocab: Int,
+    algorithm: String,
+    threads: Int,
+) raises -> Tuple[List[Int], List[Float64]]:
+    """Greedy token and confidence for each requested logits row, rows in parallel.
+
+    algorithm "llada" scores with `argmax_and_prob`; anything else is a Dream
+    algorithm for `_confidence`. Every row is computed exactly as the
+    sequential loop would, so the thread count cannot change a generation.
+    """
+    var n = len(row_of)
+    var tok_buf = Bytes(8 * max(n, 1))
+    var conf_buf = Bytes(8 * max(n, 1))
+    var tp = Pointer[Int64, MutAnyOrigin](unsafe_from_address=tok_buf.addr)
+    var cp = Pointer[Float64, MutAnyOrigin](unsafe_from_address=conf_buf.addr)
+
+    def work(j: Int) {imm}:
+        var row = logits.unsafe_offset(row_of[j] * vocab)
+        if algorithm == "llada":
+            var r = argmax_and_prob(row, vocab)
+            tp[unsafe_offset=j] = Int64(r[0])
+            cp[unsafe_offset=j] = r[1]
+        else:
+            var r = _confidence(row, vocab, algorithm)
+            tp[unsafe_offset=j] = Int64(r[0])
+            cp[unsafe_offset=j] = r[1]
+
+    parallel_for(work, n, threads)
+    var toks = List[Int](capacity=n)
+    var confs = List[Float64](capacity=n)
+    for j in range(n):
+        toks.append(Int(tp[unsafe_offset=j]))
+        confs.append(cp[unsafe_offset=j])
+    return (toks^, confs^)
+
+
 def generate[
     M: DenoisingModel
 ](mut model: M, prompt: List[Int], cfg: GenConfig) raises -> GenResult:
@@ -281,20 +325,30 @@ def _generate_llada[
             res.forward_passes += 1
             var x0 = List[Int](capacity=len(cand))
             var conf = List[Float64](capacity=len(cand))
+            var row_of = List[Int](capacity=len(cand))
             for j in range(len(cand)):
-                var r = cand[j] if cfg.full_logits else j
-                var row = logits.ptr().unsafe_offset(r * vocab)
-                var ap = argmax_and_prob(row, vocab)
-                var tok = ap[0]
-                if cfg.temperature > 0:
-                    tok = _gumbel_argmax(row, vocab, cfg.temperature, rng)
-                x0.append(tok)
+                row_of.append(cand[j] if cfg.full_logits else j)
+            if cfg.temperature > 0:
+                # Gumbel noise draws from one RNG stream in row order, so this
+                # path stays sequential.
+                for j in range(len(cand)):
+                    var row = logits.ptr().unsafe_offset(row_of[j] * vocab)
+                    var tok = _gumbel_argmax(row, vocab, cfg.temperature, rng)
+                    x0.append(tok)
+                    if cfg.remasking == "random":
+                        conf.append(rng.uniform())
+                    else:
+                        conf.append(_prob_of(row, vocab, tok))
+            else:
+                var greedy = _greedy_rows(
+                    logits.ptr(), row_of, vocab, "llada", cfg.threads
+                )
+                x0 = greedy[0].copy()
                 if cfg.remasking == "random":
-                    conf.append(rng.uniform())
-                elif cfg.temperature > 0:
-                    conf.append(_prob_of(row, vocab, tok))
+                    for _ in range(len(cand)):
+                        conf.append(rng.uniform())
                 else:
-                    conf.append(ap[1])
+                    conf = greedy[1].copy()
             var committed = List[Int]()
             for j in select_top(conf, schedule[s]):
                 res.tokens[cand[j]] = x0[j]
@@ -411,14 +465,14 @@ def _generate_dream[
             rows.append(model.logit_row(p))
         model.forward(res.tokens, rows, logits.ptr())
         res.forward_passes += 1
-        var x0 = List[Int](capacity=len(cand))
-        var conf = List[Float64](capacity=len(cand))
+        var row_of = List[Int](capacity=len(cand))
         for j in range(len(cand)):
-            var r = _confidence(
-                logits.ptr().unsafe_offset(j * vocab), vocab, algorithm
-            )
-            x0.append(r[0])
-            conf.append(r[1])
+            row_of.append(j)
+        var greedy = _greedy_rows(
+            logits.ptr(), row_of, vocab, algorithm, cfg.threads
+        )
+        var x0 = greedy[0].copy()
+        var conf = greedy[1].copy()
         var n_transfer = len(cand)
         if i < cfg.steps - 1:
             var t = 1.0 - Float64(i) * (1.0 - cfg.eps) / Float64(cfg.steps)
