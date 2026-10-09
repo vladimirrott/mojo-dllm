@@ -332,6 +332,8 @@ def _run[
             + String(res.seconds)
             + ', "ms_per_step": '
             + String(res.seconds * 1000.0 / Float64(max(res.forward_passes, 1)))
+            + ', "forward_ms": '
+            + String(Float64(tm.total_ns) / 1e6 / fw)
             + ', "gemm_ms_per_forward": '
             + String(Float64(tm.gemm_ns) / 1e6 / fw)
             + ', "attention_ms_per_forward": '
