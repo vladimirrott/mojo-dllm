@@ -99,25 +99,6 @@ struct ModelConfig(Copyable, ImplicitlyCopyable, Movable):
         return self.n_kv_heads * self.head_dim
 
 
-trait DenoisingModel:
-    """What the samplers need from a model, whichever device runs it."""
-
-    def config(self) -> ModelConfig:
-        """The hyperparameters read from the GGUF."""
-        ...
-
-    def logit_row(self, position: Int) -> Int:
-        """The forward-pass row whose logits score `position`."""
-        ...
-
-    def forward(
-        mut self, tokens: List[Int], out_rows: List[Int], logits: F32Ptr
-    ) raises:
-        """Logits for `out_rows` (ascending forward-pass rows), written as [len(out_rows), vocab].
-        """
-        ...
-
-
 struct Layer(Movable):
     var attn_norm: Floats
     var ffn_norm: Floats
@@ -210,6 +191,37 @@ struct Timings(Copyable, ImplicitlyCopyable, Movable):
         self.forwards = 0
 
 
+trait DenoisingModel:
+    """What the samplers need from a model, whichever device runs it."""
+
+    def config(self) -> ModelConfig:
+        """The hyperparameters read from the GGUF."""
+        ...
+
+    def logit_row(self, position: Int) -> Int:
+        """The forward-pass row whose logits score `position`."""
+        ...
+
+    def forward(
+        mut self, tokens: List[Int], out_rows: List[Int], logits: F32Ptr
+    ) raises:
+        """Logits for `out_rows` (ascending forward-pass rows), written as [len(out_rows), vocab].
+        """
+        ...
+
+    def model_name(self) raises -> String:
+        """`general.name` from the GGUF, or "?"."""
+        ...
+
+    def load_time(self) -> Float64:
+        """Seconds the constructor took, weights included."""
+        ...
+
+    def stats(self) -> Timings:
+        """Accumulated forward-pass timings."""
+        ...
+
+
 struct DiffusionLM(DenoisingModel, Movable):
     var gguf: GGUFFile
     var cfg: ModelConfig
@@ -276,6 +288,15 @@ struct DiffusionLM(DenoisingModel, Movable):
 
     def config(self) -> ModelConfig:
         return self.cfg
+
+    def model_name(self) raises -> String:
+        return self.gguf.get_str_or("general.name", "?")
+
+    def load_time(self) -> Float64:
+        return self.load_seconds
+
+    def stats(self) -> Timings:
+        return self.timings
 
     def logit_row(self, position: Int) -> Int:
         """The forward-pass row whose logits score `position`."""

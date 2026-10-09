@@ -117,6 +117,13 @@ step "mojo format" fmt_check
 step "build -Werror" build
 if [ "$mode" = full ]; then
     step "tests (count pinned)" bash scripts/run-tests.sh
+    step "--device gpu without a GPU fails cleanly" bash scripts/check_no_gpu.sh
+    gpus="$(nvidia-smi -L 2>/dev/null)"
+    if grep -q '^GPU ' <<<"$gpus"; then
+        step "GPU tests (count pinned)" bash scripts/run-gpu-tests.sh
+    else
+        RESULTS+=("SKIP  GPU tests (no NVIDIA GPU on this machine; nothing was checked)")
+    fi
     step "shellcheck" shell_lint
     step "yamllint" yaml_lint
     step "markdownlint" md_lint
