@@ -88,7 +88,18 @@ Evidence: `bench/parity/2026-10-03-dream.json` (mojo-dllm `0b3e17a`).
 | 71 tokens | 71 | 0.99991 | 0.99993 | 0.9455 (row 26) | 0.042 | 62 / 71 | 4.63 / 5 |
 | 133 tokens | 133 | 0.99984 | 0.99986 | 0.9016 (row 11) | 0.037 | 85 / 133 | 4.22 / 5 |
 
-Evidence: `bench/parity/2026-10-09-dream-gpu.json` (mojo-dllm `4cfc3ee`).
+The same canvases against a second reference, llama.cpp CUDA, and the two references against each other:
+
+| Canvas | compared | median cosine | worst cosine | median rel. RMS | same argmax |
+|---:|---|---:|---:|---:|---:|
+| 71 tokens | mojo-dllm vs llama.cpp CPU | 0.99991 | 0.9455 | 0.042 | 62 / 71 |
+| 71 tokens | mojo-dllm vs llama.cpp CUDA | 0.99994 | 0.8179 | 0.020 | 64 / 71 |
+| 71 tokens | llama.cpp CPU vs llama.cpp CUDA | 0.99987 | 0.6492 | 0.044 | 62 / 71 |
+| 133 tokens | mojo-dllm vs llama.cpp CPU | 0.99984 | 0.9016 | 0.037 | 85 / 133 |
+| 133 tokens | mojo-dllm vs llama.cpp CUDA | 0.99990 | 0.8975 | 0.022 | 97 / 133 |
+| 133 tokens | llama.cpp CPU vs llama.cpp CUDA | 0.99979 | 0.8784 | 0.039 | 80 / 133 |
+
+Evidence: `bench/parity/2026-10-09-dream-gpu.json` (mojo-dllm `cedc0b5`).
 <!-- parity:end -->
 
 Exact equality is not the goal: both runtimes quantize activations to int8,
@@ -155,7 +166,7 @@ Evidence: `bench/parity/2026-10-03-dream.json` (mojo-dllm `0b3e17a`).
 | Explain speculative decoding in two sentences. | 32 | 32 | 26 / 32 | position 23 |
 | Write a short Python function that checks whether a number is prime. | 64 | 32 | 28 / 64 | position 1 |
 
-Evidence: `bench/parity/2026-10-09-dream-gpu.json` (mojo-dllm `4cfc3ee`).
+Evidence: `bench/parity/2026-10-09-dream-gpu.json` (mojo-dllm `cedc0b5`).
 <!-- genparity:end -->
 
 ## Reproduce

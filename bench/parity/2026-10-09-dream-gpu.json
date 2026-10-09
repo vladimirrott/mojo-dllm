@@ -1,10 +1,10 @@
 {
-  "date": "2026-10-09T09:12:00",
+  "date": "2026-10-09T11:01:16",
   "arch": "dream",
   "device": "gpu",
   "model": "Dream-v0-Instruct-7B-Q4_K_M.gguf",
   "versions": {
-    "mojo-dllm": "4cfc3ee"
+    "mojo-dllm": "cedc0b5"
   },
   "reference": "llama.cpp libllama via tools/ref/llada_ref.cpp",
   "logits": [
@@ -23,7 +23,37 @@
         26,
         22,
         23
-      ]
+      ],
+      "vs_ref2": {
+        "rows": 71,
+        "min_cosine": 0.8179303192660671,
+        "median_cosine": 0.9999390035158213,
+        "masked_median_cosine": 0.9999488050065077,
+        "max_rel_rms": 0.6353750219496086,
+        "median_rel_rms": 0.020062199415551544,
+        "argmax_agree": 64,
+        "mean_top5_overlap": 4.605633802816901,
+        "worst_rows": [
+          22,
+          9,
+          26
+        ]
+      },
+      "ref_vs_ref2": {
+        "rows": 71,
+        "min_cosine": 0.6492374192374811,
+        "median_cosine": 0.9998697568414691,
+        "masked_median_cosine": 0.9998937286377618,
+        "max_rel_rms": 0.9877075138743626,
+        "median_rel_rms": 0.04448329184083522,
+        "argmax_agree": 62,
+        "mean_top5_overlap": 4.464788732394366,
+        "worst_rows": [
+          22,
+          26,
+          9
+        ]
+      }
     },
     {
       "prompt": "List three differences between diffusion language models and autoregressive language models.",
@@ -40,7 +70,37 @@
         11,
         3,
         9
-      ]
+      ],
+      "vs_ref2": {
+        "rows": 133,
+        "min_cosine": 0.897549444333361,
+        "median_cosine": 0.9998968420312043,
+        "masked_median_cosine": 0.9999044976018832,
+        "max_rel_rms": 0.5832826592883842,
+        "median_rel_rms": 0.022184089894136262,
+        "argmax_agree": 97,
+        "mean_top5_overlap": 4.195488721804511,
+        "worst_rows": [
+          11,
+          3,
+          9
+        ]
+      },
+      "ref_vs_ref2": {
+        "rows": 133,
+        "min_cosine": 0.8783889416876979,
+        "median_cosine": 0.99979008054959,
+        "masked_median_cosine": 0.9997986883847156,
+        "max_rel_rms": 1.1862458642793756,
+        "median_rel_rms": 0.03922864450803443,
+        "argmax_agree": 80,
+        "mean_top5_overlap": 3.9473684210526314,
+        "worst_rows": [
+          9,
+          29,
+          28
+        ]
+      }
     }
   ],
   "generation": [
@@ -62,5 +122,6 @@
       "first_divergence": 1,
       "mojo_text": "Here's an implementation in Python:\n\n```python\ndef is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True\n```"
     }
-  ]
+  ],
+  "reference2": "llama.cpp CUDA"
 }
