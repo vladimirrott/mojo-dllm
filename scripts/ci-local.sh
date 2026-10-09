@@ -90,7 +90,7 @@ fmt_check() {
 }
 build() {
     [ -n "$MOJO" ] || { echo "missing tool: mojo" >&2; return 1; }
-    mkdir -p build && $MOJO build -Werror -I src src/main.mojo -o build/mojo-dllm
+    bash scripts/build.sh
 }
 shell_lint() {
     need shellcheck && shellcheck --severity=warning scripts/*.sh .githooks/*
@@ -117,6 +117,13 @@ step "mojo format" fmt_check
 step "build -Werror" build
 if [ "$mode" = full ]; then
     step "tests (count pinned)" bash scripts/run-tests.sh
+    step "--device gpu without a GPU fails cleanly" bash scripts/check_no_gpu.sh
+    gpus="$(nvidia-smi -L 2>/dev/null)"
+    if grep -q '^GPU ' <<<"$gpus"; then
+        step "GPU tests (count pinned)" bash scripts/run-gpu-tests.sh
+    else
+        RESULTS+=("SKIP  GPU tests (no NVIDIA GPU on this machine; nothing was checked)")
+    fi
     step "shellcheck" shell_lint
     step "yamllint" yaml_lint
     step "markdownlint" md_lint
@@ -131,4 +138,8 @@ if [ "$failures" -gt 0 ]; then
     printf 'ci-local: %d step(s) failed\n' "$failures"
     exit 1
 fi
-echo "ci-local: all ${#RESULTS[@]} steps passed"
+skipped=0
+for r in "${RESULTS[@]}"; do
+    [[ "$r" == SKIP* ]] && skipped=$((skipped + 1))
+done
+echo "ci-local: $((${#RESULTS[@]} - skipped)) steps passed, $skipped skipped"

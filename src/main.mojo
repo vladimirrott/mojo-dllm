@@ -1,11 +1,12 @@
 """Command line for mojo-dllm.
 
     mojo-dllm run      --model M --prompt TEXT [--max-tokens N] [--steps N] [--block-length N]
-                       [--seed N] [--temperature T] [--threads N] [--remasking low_confidence|random]
+                       [--seed N] [--temperature T] [--threads N] [--device cpu|gpu]
+                       [--remasking low_confidence|random]
                        [--no-chat] [--full-logits] [--visual] [--verbose] [--dump-step-stats] [--json]
     mojo-dllm tokenize --model M --prompt TEXT [--no-chat]
     mojo-dllm inspect  MODEL.gguf
-    mojo-dllm logits   --model M --tokens 1,2,3 --rows 0,2 --out logits.f32 [--threads N]
+    mojo-dllm logits   --model M --tokens 1,2,3 --rows 0,2 --out logits.f32 [--threads N] [--device cpu|gpu]
 """
 
 from std.ffi import external_call, c_int
@@ -19,7 +20,8 @@ from mojo_dllm.diffusion.sampler import (
     StepObserver,
     generate_observed,
 )
-from mojo_dllm.models.transformer import DiffusionLM
+from mojo_dllm.gpu.model import GpuDiffusionLM
+from mojo_dllm.models.transformer import DenoisingModel, DiffusionLM
 from mojo_dllm.sys.mem import Bytes, Floats
 from mojo_dllm.tokenizer.bpe import Tokenizer
 
@@ -35,13 +37,14 @@ def usage() -> String:
         + "  mojo-dllm run --model M --prompt TEXT [--max-tokens 128] [--steps"
         " 128] [--block-length 32]\n"
         + "                [--seed 42] [--temperature 0] [--threads N]"
-        " [--remasking low_confidence|random]\n"
+        " [--device cpu|gpu]\n"
+        + "                [--remasking low_confidence|random]\n"
         + "                [--no-chat] [--full-logits] [--visual] [--verbose]"
         " [--dump-step-stats] [--json]\n"
         + "  mojo-dllm tokenize --model M --prompt TEXT [--no-chat]\n"
         + "  mojo-dllm inspect MODEL.gguf\n"
         + "  mojo-dllm logits --model M --tokens IDS --rows POS --out FILE"
-        " [--threads N]\n"
+        " [--threads N] [--device cpu|gpu]\n"
     )
 
 
@@ -191,31 +194,76 @@ def cmd_run(a: Args) raises:
     cfg.temperature = a.float_or("temperature", 0.0)
     cfg.remasking = a.get_or("remasking", "low_confidence")
     cfg.full_logits = a.has("full-logits")
-    var verbose = a.has("verbose")
+    cfg.threads = threads
     var t0 = perf_counter_ns()
     var g = GGUFFile(a.get("model"))
     var tok = Tokenizer(g)
     var prompt = encode_prompt(tok, g.architecture(), a)
     _ = g^
     var tok_s = Float64(perf_counter_ns() - t0) / 1e9
-    var model = DiffusionLM(
-        a.get("model"), threads=threads, max_tokens=len(prompt) + cfg.gen_length
-    )
-    cfg.mask_id = model.cfg.mask_id
+    var device = a.get_or("device", "cpu")
+    var max_tokens = len(prompt) + cfg.gen_length
+    if device == "gpu":
+        var gm = GpuDiffusionLM(a.get("model"), max_tokens=max_tokens)
+        _run(
+            gm,
+            a,
+            cfg^,
+            prompt,
+            tok^,
+            tok_s,
+            device,
+            "gpu (" + gm.ctx.name() + ")",
+            threads,
+        )
+    elif device == "cpu":
+        var cm = DiffusionLM(
+            a.get("model"), threads=threads, max_tokens=max_tokens
+        )
+        _run(
+            cm,
+            a,
+            cfg^,
+            prompt,
+            tok^,
+            tok_s,
+            device,
+            "cpu   threads: " + String(threads),
+            threads,
+        )
+    else:
+        raise Error("unknown device: " + device + " (expected cpu or gpu)")
+
+
+def _run[
+    M: DenoisingModel
+](
+    mut model: M,
+    a: Args,
+    var cfg: GenConfig,
+    prompt: List[Int],
+    var tok: Tokenizer,
+    tok_s: Float64,
+    device: String,
+    device_line: String,
+    threads: Int,
+) raises:
+    var verbose = a.has("verbose")
+    cfg.mask_id = model.config().mask_id
     if verbose:
         print(
             "model:",
-            model.gguf.get_str_or("general.name", "?"),
-            "(" + model.cfg.arch + ")",
+            model.model_name(),
+            "(" + model.config().arch + ")",
         )
-        print("device: cpu   threads:", threads)
+        print("device:", device_line)
         print(
             "prompt tokens:",
             len(prompt),
             "  generation tokens:",
             cfg.gen_length,
         )
-        if model.cfg.arch == "dream":
+        if model.config().arch == "dream":
             print(
                 "diffusion steps:",
                 cfg.steps,
@@ -231,9 +279,9 @@ def cmd_run(a: Args) raises:
                 "  remasking:",
                 cfg.remasking,
             )
-        print("load time:", model.load_seconds, "s (tokenizer", tok_s, "s)")
+        print("load time:", model.load_time(), "s (tokenizer", tok_s, "s)")
     var printer = CanvasPrinter(
-        tok^, len(prompt), model.cfg.mask_id, a.has("visual")
+        tok^, len(prompt), model.config().mask_id, a.has("visual")
     )
     var res = generate_observed(model, prompt, cfg, printer)
     var gen = List[Int]()
@@ -243,7 +291,7 @@ def cmd_run(a: Args) raises:
             break
         gen.append(t)
     var text = printer.tok.decode(gen)
-    var tm = model.timings
+    var tm = model.stats()
     var fw = Float64(max(tm.forwards, 1))
     if a.has("dump-step-stats"):
         for i in range(len(res.step_ms)):
@@ -258,7 +306,9 @@ def cmd_run(a: Args) raises:
             + '"runtime": "mojo-dllm", "version": "'
             + VERSION
             + '", "arch": "'
-            + model.cfg.arch
+            + model.config().arch
+            + '", "device": "'
+            + device
             + '"'
             + ', "threads": '
             + String(threads)
@@ -275,13 +325,15 @@ def cmd_run(a: Args) raises:
             + ', "forward_passes": '
             + String(res.forward_passes)
             + ', "load_s": '
-            + String(model.load_seconds)
+            + String(model.load_time())
             + ', "tokenizer_s": '
             + String(tok_s)
             + ', "generate_s": '
             + String(res.seconds)
             + ', "ms_per_step": '
             + String(res.seconds * 1000.0 / Float64(max(res.forward_passes, 1)))
+            + ', "forward_ms": '
+            + String(Float64(tm.total_ns) / 1e6 / fw)
             + ', "gemm_ms_per_forward": '
             + String(Float64(tm.gemm_ns) / 1e6 / fw)
             + ', "attention_ms_per_forward": '
@@ -313,7 +365,9 @@ def cmd_run(a: Args) raises:
         print(
             "per step:",
             res.seconds * 1000.0 / Float64(max(res.forward_passes, 1)),
-            "ms",
+            "ms   (forward pass",
+            Float64(tm.total_ns) / 1e6 / fw,
+            "ms)",
         )
         print(
             "  gemm",
@@ -368,19 +422,35 @@ def cmd_logits(a: Args) raises:
     var threads = a.int_or("threads", num_logical_cores())
     var tokens = parse_csv_ints(a.get("tokens"))
     var rows = parse_csv_ints(a.get("rows"))
-    var m = DiffusionLM(a.get("model"), threads=threads, max_tokens=len(tokens))
-    var out = Floats(len(rows) * m.cfg.vocab)
+    var device = a.get_or("device", "cpu")
+    if device == "gpu":
+        var gm = GpuDiffusionLM(a.get("model"), max_tokens=len(tokens))
+        _logits(gm, tokens, rows, a.get("out"))
+    elif device == "cpu":
+        var cm = DiffusionLM(
+            a.get("model"), threads=threads, max_tokens=len(tokens)
+        )
+        _logits(cm, tokens, rows, a.get("out"))
+    else:
+        raise Error("unknown device: " + device + " (expected cpu or gpu)")
+
+
+def _logits[
+    M: DenoisingModel
+](mut m: M, tokens: List[Int], rows: List[Int], path: String) raises:
+    var vocab = m.config().vocab
+    var out = Floats(len(rows) * vocab)
     m.forward(tokens, rows, out.ptr())
-    with open(a.get("out"), "w") as f:
+    with open(path, "w") as f:
         var p = out.ptr().unsafe_bitcast[UInt8]()
-        f.write_bytes(Span(unsafe_ptr=p, length=len(rows) * m.cfg.vocab * 4))
+        f.write_bytes(Span(unsafe_ptr=p, length=len(rows) * vocab * 4))
     print(
         "wrote",
         len(rows),
         "rows x",
-        m.cfg.vocab,
+        vocab,
         "logits; load",
-        m.load_seconds,
+        m.load_time(),
         "s",
     )
 

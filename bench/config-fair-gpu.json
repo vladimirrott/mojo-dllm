@@ -1,0 +1,22 @@
+{
+  "models": {
+    "gguf": "~/models/llada/LLaDA-8B-Instruct.Q4_K_M.gguf"
+  },
+  "llama_cpp": "~/src/llama.cpp",
+  "diffuse_cpp": "~/src/diffuse-cpp",
+  "runtimes": [
+    "mojo-dllm-gpu",
+    "llama-bench-cuda"
+  ],
+  "prompts": [
+    "Explain speculative decoding in two sentences."
+  ],
+  "gen_length": 128,
+  "steps": 32,
+  "block_length": 32,
+  "threads": 12,
+  "busy_threshold": 0.1,
+  "max_quiet_wait_s": 60,
+  "kill_pytest": false,
+  "kind": "fairness"
+}

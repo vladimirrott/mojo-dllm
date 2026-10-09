@@ -12,12 +12,19 @@ not share code with.
   weights; relative error under 1% with int8 activations.
 - RMSNorm, RoPE, softmax, bidirectional attention, SwiGLU: closed-form cases.
 - The forward pass of a 2-layer model with random K-quant weights: compared
-  with a numpy forward pass; relative logit error under 2% and the same argmax
-  on every position.
+  with a numpy forward pass; relative logit error under 2% on the LLaDA model
+  and under 5% on the Dream model (its large Q/K biases sharpen the softmax,
+  which amplifies int8 error), and the same argmax on every position.
+
+The GPU has its own suite, `tests/gpu/test_gpu.mojo`, which runs on a machine
+with an NVIDIA GPU (`scripts/run-gpu-tests.sh`; CI only builds it). It checks
+each GPU kernel against the CPU function it replaces, the int8 `mma` fragment
+layout against a CPU matmul, and the GPU forward pass of both tiny models
+against the numpy reference with a 2% bound on both models.
 
 ## 2. Tokenizer (unit tests, every commit)
 
-35 strings covering English, contractions, numbers, accents, combining marks,
+36 strings covering English, contractions, numbers, accents, combining marks,
 CJK, Cyrillic, Arabic, Devanagari, emoji, CRLF, non-breaking and em spaces,
 code, and LLaDA's chat-template special tokens. Every id matches
 `llama-tokenize` on the real LLaDA GGUF, and decoding restores the input
@@ -27,7 +34,14 @@ byte for byte.
 
 `tools/ref/llada_ref.cpp` links libllama and dumps llama.cpp's logits for a
 fixed token sequence; `mojo-dllm logits` dumps ours; `scripts/compare_logits.py`
-compares them.
+compares them. The sections marked GPU run `mojo-dllm logits --device gpu`.
+
+The GPU sections also compare against llama.cpp built with CUDA. That build
+quantizes activations with one scale per 32 values, as the GPU path does,
+while llama.cpp on the CPU uses one per 256, as the CPU path does. On Dream's
+prompt rows the two llama.cpp builds disagree with each other, so a single
+reference would mix that spread into mojo-dllm's numbers. The table under each
+GPU section shows all three pairs.
 
 <!-- parity:start -->
 **LLaDA-8B-Instruct.Q4_K_M.gguf**
@@ -39,6 +53,26 @@ compares them.
 
 Evidence: `bench/parity/2026-10-03-llada.json` (mojo-dllm `0b3e17a`).
 
+**LLaDA-8B-Instruct.Q4_K_M.gguf, GPU**
+
+| Canvas | rows | median cosine | masked rows median | worst cosine | median rel. RMS | same argmax | top-5 overlap |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 64 tokens | 64 | 0.99981 | 0.99983 | 0.9960 (row 13) | 0.021 | 62 / 64 | 4.77 / 5 |
+| 126 tokens | 126 | 0.99988 | 0.99988 | 0.9984 (row 24) | 0.017 | 120 / 126 | 4.74 / 5 |
+
+The same canvases against a second reference, llama.cpp CUDA, and the two references against each other:
+
+| Canvas | compared | median cosine | worst cosine | median rel. RMS | same argmax |
+|---:|---|---:|---:|---:|---:|
+| 64 tokens | mojo-dllm vs llama.cpp CPU | 0.99981 | 0.9960 | 0.021 | 62 / 64 |
+| 64 tokens | mojo-dllm vs llama.cpp CUDA | 0.99988 | 0.9952 | 0.017 | 60 / 64 |
+| 64 tokens | llama.cpp CPU vs llama.cpp CUDA | 0.99972 | 0.9960 | 0.026 | 60 / 64 |
+| 126 tokens | mojo-dllm vs llama.cpp CPU | 0.99988 | 0.9984 | 0.017 | 120 / 126 |
+| 126 tokens | mojo-dllm vs llama.cpp CUDA | 0.99992 | 0.9987 | 0.015 | 120 / 126 |
+| 126 tokens | llama.cpp CPU vs llama.cpp CUDA | 0.99983 | 0.9973 | 0.021 | 117 / 126 |
+
+Evidence: `bench/parity/2026-10-09-llada-gpu.json` (mojo-dllm `cedc0b5`).
+
 **Dream-v0-Instruct-7B-Q4_K_M.gguf**
 
 | Canvas | rows | median cosine | masked rows median | worst cosine | median rel. RMS | same argmax | top-5 overlap |
@@ -47,6 +81,26 @@ Evidence: `bench/parity/2026-10-03-llada.json` (mojo-dllm `0b3e17a`).
 | 133 tokens | 133 | 0.99986 | 0.99988 | 0.9782 (row 11) | 0.033 | 92 / 133 | 4.22 / 5 |
 
 Evidence: `bench/parity/2026-10-03-dream.json` (mojo-dllm `0b3e17a`).
+
+**Dream-v0-Instruct-7B-Q4_K_M.gguf, GPU**
+
+| Canvas | rows | median cosine | masked rows median | worst cosine | median rel. RMS | same argmax | top-5 overlap |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 71 tokens | 71 | 0.99991 | 0.99993 | 0.9455 (row 26) | 0.042 | 62 / 71 | 4.63 / 5 |
+| 133 tokens | 133 | 0.99984 | 0.99986 | 0.9016 (row 11) | 0.037 | 85 / 133 | 4.22 / 5 |
+
+The same canvases against a second reference, llama.cpp CUDA, and the two references against each other:
+
+| Canvas | compared | median cosine | worst cosine | median rel. RMS | same argmax |
+|---:|---|---:|---:|---:|---:|
+| 71 tokens | mojo-dllm vs llama.cpp CPU | 0.99991 | 0.9455 | 0.042 | 62 / 71 |
+| 71 tokens | mojo-dllm vs llama.cpp CUDA | 0.99994 | 0.8179 | 0.020 | 64 / 71 |
+| 71 tokens | llama.cpp CPU vs llama.cpp CUDA | 0.99987 | 0.6492 | 0.044 | 62 / 71 |
+| 133 tokens | mojo-dllm vs llama.cpp CPU | 0.99984 | 0.9016 | 0.037 | 85 / 133 |
+| 133 tokens | mojo-dllm vs llama.cpp CUDA | 0.99990 | 0.8975 | 0.022 | 97 / 133 |
+| 133 tokens | llama.cpp CPU vs llama.cpp CUDA | 0.99979 | 0.8784 | 0.039 | 80 / 133 |
+
+Evidence: `bench/parity/2026-10-09-dream-gpu.json` (mojo-dllm `cedc0b5`).
 <!-- parity:end -->
 
 Exact equality is not the goal: both runtimes quantize activations to int8,
@@ -88,6 +142,15 @@ prompt does on LLaDA, shows that the loops agree.
 
 Evidence: `bench/parity/2026-10-03-llada.json` (mojo-dllm `0b3e17a`).
 
+**LLaDA-8B-Instruct.Q4_K_M.gguf, GPU**
+
+| Prompt | generated | steps | same tokens | first difference |
+|---|---:|---:|---:|---:|
+| Explain speculative decoding in two sentences. | 32 | 32 | 8 / 32 | position 5 |
+| Write a short Python function that checks whether a number is prime. | 64 | 32 | 64 / 64 | none |
+
+Evidence: `bench/parity/2026-10-09-llada-gpu.json` (mojo-dllm `cedc0b5`).
+
 **Dream-v0-Instruct-7B-Q4_K_M.gguf**
 
 | Prompt | generated | steps | same tokens | first difference |
@@ -96,6 +159,15 @@ Evidence: `bench/parity/2026-10-03-llada.json` (mojo-dllm `0b3e17a`).
 | Write a short Python function that checks whether a number is prime. | 64 | 32 | 43 / 64 | position 3 |
 
 Evidence: `bench/parity/2026-10-03-dream.json` (mojo-dllm `0b3e17a`).
+
+**Dream-v0-Instruct-7B-Q4_K_M.gguf, GPU**
+
+| Prompt | generated | steps | same tokens | first difference |
+|---|---:|---:|---:|---:|
+| Explain speculative decoding in two sentences. | 32 | 32 | 26 / 32 | position 23 |
+| Write a short Python function that checks whether a number is prime. | 64 | 32 | 28 / 64 | position 1 |
+
+Evidence: `bench/parity/2026-10-09-dream-gpu.json` (mojo-dllm `cedc0b5`).
 <!-- genparity:end -->
 
 ## Reproduce

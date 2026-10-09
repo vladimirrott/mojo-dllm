@@ -9,6 +9,7 @@ from mojo_dllm.diffusion.sampler import (
     generate,
     Rng,
     _confidence,
+    _greedy_rows,
     StepObserver,
     generate_observed,
 )
@@ -113,6 +114,54 @@ def test_full_logits_ablation_gives_same_tokens() raises:
     var b = generate(m, prompt, c)
     for i in range(len(a.tokens)):
         assert_equal(a.tokens[i], b.tokens[i])
+
+
+def test_sampler_threads_do_not_change_tokens() raises:
+    # The per-row confidence pass runs rows in parallel. Each row's sums
+    # keep their order, so the thread count must not move a single token.
+    for path in ["tiny-llada.gguf", "tiny-dream.gguf"]:
+        var m = DiffusionLM(FIX + path, threads=2, max_tokens=16)
+        var prompt: List[Int] = [5, 17, 300]
+        var mask = 510 if path == "tiny-dream.gguf" else 511
+        var one = _tiny_cfg()
+        one.threads = 1
+        one.mask_id = mask
+        var four = _tiny_cfg()
+        four.threads = 4
+        four.mask_id = mask
+        var a = generate(m, prompt, one)
+        var b = generate(m, prompt, four)
+        assert_equal(len(a.tokens), len(b.tokens))
+        for i in range(len(a.tokens)):
+            assert_equal(
+                a.tokens[i], b.tokens[i], path + " position " + String(i)
+            )
+
+
+def test_greedy_rows_match_the_sequential_scorers() raises:
+    var vocab = 700
+    var n = 9
+    var logits = Floats(n * vocab)
+    var rng = Rng(3)
+    for i in range(n * vocab):
+        logits[i] = Float32(rng.uniform() * 12.0 - 6.0)
+    # Score rows out of order, as full-logits mode does.
+    var row_of: List[Int] = [8, 0, 3, 5, 1, 7, 2, 6, 4]
+    for algorithm in ["llada", "entropy", "maskgit_plus", "topk_margin"]:
+        var got = _greedy_rows(logits.ptr(), row_of, vocab, algorithm, 4)
+        for j in range(n):
+            var row = logits.ptr().unsafe_offset(row_of[j] * vocab)
+            var want: Tuple[Int, Float64]
+            if algorithm == "llada":
+                want = argmax_and_prob(row, vocab)
+            else:
+                want = _confidence(row, vocab, algorithm)
+            assert_equal(
+                got[0][j], want[0], algorithm + " token, row " + String(j)
+            )
+            assert_equal(
+                got[1][j], want[1], algorithm + " confidence, row " + String(j)
+            )
 
 
 def test_rejects_bad_block_geometry() raises:

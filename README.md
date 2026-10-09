@@ -27,9 +27,10 @@
 </p>
 
 mojo-dllm runs **LLaDA-8B** and **Dream-7B**, two diffusion language models,
-on your CPU from quantized GGUF files. The GGUF reader, the tokenizer, the quantized matrix
-multiply, the transformer and the denoising loop are all Mojo. You need no
-Python at runtime and no GPU.
+from quantized GGUF files on your CPU or on an NVIDIA GPU. The GGUF reader,
+the tokenizer, the quantized matrix multiply, the GPU kernels, the transformer
+and the denoising loop are all Mojo. You need no Python at runtime, and the
+GPU is optional.
 
 A diffusion model does not write left to right. It starts from a canvas of
 masked tokens and, over a fixed number of steps, commits the tokens it is most
@@ -84,7 +85,11 @@ build/mojo-dllm run --model LLaDA-8B-Instruct.Q4_K_M.gguf \
 ```
 
 You need Linux on x86-64 with AVX2 and about 6 GB of free memory. Pixi
-installs the pinned Mojo toolchain into the project directory. The
+installs the pinned Mojo toolchain into the project directory.
+
+On an NVIDIA GPU with compute capability 8.0 or newer (RTX 30 series and
+later), add `--device gpu`. The weights then live in GPU memory; if the card
+has too little free, mojo-dllm says how much it needs and exits. The
 [quick start guide](docs/quickstart.md) covers `inspect`, `tokenize` and the
 flags.
 
@@ -96,6 +101,12 @@ flags.
   4-bit. [The quantized GEMM](docs/kernels.md) has the layout.
 - **Threads that suit hybrid CPUs.** Work goes out one item at a time from an
   atomic counter, so performance cores take more than efficiency cores.
+- **Int8 tensor cores on the GPU.** With `--device gpu`, every projection
+  reads the same Q4_K and Q6_K blocks from GPU memory and multiplies them on
+  the tensor cores: one `mma` per 32-weight Q4_K sub-block, one per 16-weight
+  Q6_K group. Attention gives each
+  thread block 16 queries and streams the keys through shared memory.
+  [The GPU path](docs/kernels.md#the-gpu-path) has the details.
 - **Logits only where the sampler looks.** A step needs logits for the masked
   positions of the current block alone, so the 126 464-way output projection
   runs on those rows.
@@ -114,15 +125,18 @@ mojo-dllm checks itself against code it does not share:
 - a 2-layer model's forward pass against numpy;
 - both tokenizers against `llama-tokenize` on 36 multilingual cases each, id
   for id;
-- logits and generated tokens on both real models against llama.cpp.
+- logits and generated tokens on both real models against llama.cpp;
+- every GPU kernel against the CPU function it replaces, and GPU logits
+  against llama.cpp.
 
 [Correctness](docs/correctness.md) has the measured agreement and the commands
 that reproduce it.
 
 ## Status
 
-Version 0.1 is CPU-only and runs LLaDA-8B and Dream-7B from GGUF files whose
-tensors are F32, Q4_K or Q6_K.
+Version 0.1 runs on the CPU. `main` adds an NVIDIA backend (`--device gpu`,
+compute capability 8.0 and newer). Both run LLaDA-8B and Dream-7B from GGUF
+files whose tensors are F32, Q4_K or Q6_K.
 
 | Milestone | State |
 |---|---|
@@ -131,7 +145,7 @@ tensors are F32, Q4_K or Q6_K.
 | Tokenizer, diffusion sampler, `mojo-dllm run` | done |
 | CPU optimization and benchmark report | two rounds done |
 | Dream-7B (GQA, QKV bias, shifted logits, its sampler) | done |
-| NVIDIA backend | next |
+| NVIDIA backend (int8 tensor cores) | done on `main` |
 | Inter-step caching, block diffusion | research |
 
 The [plan](docs/plan.md) lists what the original

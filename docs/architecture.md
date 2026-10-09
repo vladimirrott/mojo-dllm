@@ -24,10 +24,12 @@
 | `src/mojo_dllm/quant/kquants.mojo` | scalar Q4_K / Q6_K / F16 / BF16 decoders (the test oracle, and embedding rows) |
 | `src/mojo_dllm/kernels/packed.mojo` | weights repacked 8 rows per SIMD register; the GEMM used for every projection |
 | `src/mojo_dllm/kernels/qgemm.mojo` | activation quantization (int8, one scale per 256) and a row-major reference GEMM |
-| `src/mojo_dllm/kernels/ops.mojo` | RMSNorm, NORM-style RoPE, bidirectional attention, SwiGLU |
-| `src/mojo_dllm/models/llada.mojo` | config from GGUF metadata, weight loading, the forward pass |
-| `src/mojo_dllm/tokenizer/bpe.mojo` | byte-level BPE with the `bailingmoe` pre-tokenizer |
-| `src/mojo_dllm/diffusion/sampler.mojo` | LLaDA's denoising loop and its PRNG |
+| `src/mojo_dllm/kernels/ops.mojo` | RMSNorm, NORM and NEOX RoPE, bidirectional attention, SwiGLU |
+| `src/mojo_dllm/models/transformer.mojo` | config from GGUF metadata, weight loading, the CPU forward pass, and the `DenoisingModel` trait the samplers drive |
+| `src/mojo_dllm/gpu/kernels.mojo` | GPU kernels: int8 tensor-core GEMM over Q4_K / Q6_K blocks, flash-style attention, RMSNorm, RoPE, SwiGLU |
+| `src/mojo_dllm/gpu/model.mojo` | the forward pass on the GPU: weights uploaded once, activations kept on the device |
+| `src/mojo_dllm/tokenizer/bpe.mojo` | byte-level BPE with the `bailingmoe` and `qwen2` pre-tokenizers |
+| `src/mojo_dllm/diffusion/sampler.mojo` | LLaDA's and Dream's denoising loops and the PRNG |
 | `src/mojo_dllm/sys/` | aligned buffers, mmap, a dynamically scheduled parallel-for |
 
 ## A forward pass

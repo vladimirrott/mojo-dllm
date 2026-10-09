@@ -58,3 +58,38 @@ weights. Swapping the nibble halves or dropping the Q6_K zero point fails
 these tests; that mutation check runs before changes to this file land.
 
 `bench/bench_qgemm.mojo` measures the kernel alone on LLaDA's layer shapes.
+
+## The GPU path
+
+`src/mojo_dllm/gpu/kernels.mojo` does the same arithmetic on an NVIDIA GPU,
+with a layout chosen for tensor cores instead of AVX registers.
+
+**Weights stay in GGUF blocks.** Upload copies each Q4_K matrix as it is and
+pads each 210-byte Q6_K block to 212 bytes, so every block starts on a 4-byte
+boundary and the kernels can load 32-bit words.
+
+**Activations get one scale per 32.** The GPU quantizes activations to int8
+with one f32 scale per 32 values (llama.cpp's Q8_1 shape) and keeps
+`scale x sum(q)` next to it. A 32-weight Q4_K sub-block then meets exactly
+one activation scale:
+
+```text
+sum w x = d*sc*dx * sum(q * qx)  -  dmin*m * (dx * sum(qx))
+```
+
+**One mma per sub-block.** A thread block computes 64 weight rows by 32
+tokens. For each 256-wide super-block it unpacks the weights into shared
+memory as int8 (Q4_K as 0..15, Q6_K as q - 32), copies the matching
+activations next to them, and each of its 4 warps runs
+`mma.m16n8k32.s8` per sub-block for its 16 rows. Q6_K scales every 16
+weights, so it uses `mma.m16n8k16` instead, one per scale. The int32 result
+goes to f32 with the two scales and, for Q4_K, the min term. Shared rows are
+272 bytes apart so the 8 rows a fragment load reads fall in different banks.
+`tests/gpu/test_gpu.mojo` checks the fragment layout against a CPU matmul
+on random int8 matrices, and the whole kernel against an f64 GEMM.
+
+**Attention in tiles.** A block takes 16 queries of one head and walks the
+keys 32 at a time through shared memory, keeping a running maximum and sum
+(the online softmax of FlashAttention). K and V are read once per 16 queries,
+and the kernel never stores a score row, so the canvas length has no fixed
+limit.

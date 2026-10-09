@@ -3,6 +3,7 @@
 #
 #   scripts/run-tests.sh            run all, compare with tests/test-count.txt
 #   UPDATE_TEST_COUNT=1 scripts/run-tests.sh   rewrite the pin after adding tests
+#   TEST_DIR=tests/gpu scripts/run-tests.sh     another directory, with its own pin
 #
 # Why the pin: Mojo's TestSuite exits 0 when it runs zero tests, and a renamed
 # or mis-imported test file can silently drop out. A suite that passed and a
@@ -19,9 +20,10 @@ if [ -z "${MOJO:-}" ]; then
 fi
 mkdir -p build/tests
 
-files=(tests/test_*.mojo)
+test_dir="${TEST_DIR:-tests}"
+files=("$test_dir"/test_*.mojo)
 if [ "${#files[@]}" -eq 0 ] || [ ! -e "${files[0]}" ]; then
-    echo "FAIL: no test files found under tests/" >&2
+    echo "FAIL: no test files found under $test_dir/" >&2
     exit 1
 fi
 
@@ -53,7 +55,7 @@ if [ "${#failed_files[@]}" -gt 0 ]; then
     exit 1
 fi
 
-pin_file=tests/test-count.txt
+pin_file="$test_dir/test-count.txt"
 if [ "${UPDATE_TEST_COUNT:-0}" = "1" ]; then
     echo "$total_passed" >"$pin_file"
     echo "pinned test count: $total_passed"

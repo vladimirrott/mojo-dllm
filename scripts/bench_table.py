@@ -21,6 +21,8 @@ TARGETS = [ROOT / "README.md", ROOT / "docs" / "benchmarks.md", ROOT / "docs" / 
 START, END = "<!-- bench:start -->", "<!-- bench:end -->"
 
 ROWS = [
+    ("mojo-dllm-gpu", "**mojo-dllm** `--device gpu`", "Mojo"),
+    ("llama.cpp-cuda", "llama.cpp `llama-diffusion-cli`, CUDA, all layers offloaded", "C/C++, CUDA"),
     ("mojo-dllm", "**mojo-dllm**", "Mojo"),
     ("mojo-dllm-full-logits", "mojo-dllm, logits for every position (ablation)", "Mojo"),
     ("llama.cpp", "llama.cpp `llama-diffusion-cli`", "C/C++"),
@@ -36,6 +38,17 @@ def model_label(doc: dict) -> str:
     return name
 
 
+GPU_RUNTIMES = {"mojo-dllm-gpu", "llama.cpp-cuda", "llama-bench-cuda"}
+
+
+def is_gpu(doc: dict) -> bool:
+    """A result file is a GPU benchmark if it ran GPU runtimes; mixing the two is refused."""
+    kinds = {rt in GPU_RUNTIMES for rt in doc["summary"]}
+    if len(kinds) != 1:
+        raise SystemExit("bench_table: a result file mixes CPU and GPU runtimes")
+    return kinds.pop()
+
+
 def load() -> dict[str, dict]:
     """Result files grouped by model: {label: {merged, meta, sources}}."""
     files = sorted((ROOT / "bench" / "results").glob("*.json"))
@@ -46,8 +59,11 @@ def load() -> dict[str, dict]:
         doc = json.loads(f.read_text())
         if doc.get("partial", True):
             raise SystemExit(f"bench_table: {f.name} is a partial run; finish or delete it")
-        label = model_label(doc)
-        g = groups.setdefault(label, dict(merged={}, meta={}, sources=[]))
+        if doc["config"].get("kind") == "fairness":
+            continue
+        gpu = is_gpu(doc)
+        label = model_label(doc) + (" (GPU)" if gpu else "")
+        g = groups.setdefault(label, dict(merged={}, meta={}, sources=[], gpu=gpu))
         g["sources"].append(f.name)
         for rt, s in doc["summary"].items():
             if rt in g["merged"]:
@@ -63,9 +79,76 @@ def load() -> dict[str, dict]:
     return groups
 
 
+def fairness() -> str:
+    """Thread sweep and forward-pass-only tables from the fairness result files."""
+    files = sorted((ROOT / "bench" / "results").glob("*.json"))
+    docs = [(f, json.loads(f.read_text())) for f in files]
+    docs = [(f, d) for f, d in docs if d["config"].get("kind") == "fairness"]
+    out: list[str] = []
+    for f, doc in sorted(docs, key=lambda fd: is_gpu(fd[1])):
+        # A runtime whose runs all failed has no medians; leave it out here
+        # and let the run's own exit status (run_bench exits 1) report it.
+        s = {k: v for k, v in doc["summary"].items() if v["runs_ok"] > 0}
+        if not s:
+            raise SystemExit(f"bench_table: {f.name} has no successful run")
+        c = doc["config"]
+        m = doc["machine"]
+        label = model_label(doc)
+        seq = sorted({r["seq_len"] for r in doc["runs"] if r.get("ok")})
+        canvas = f"{seq[0]} tokens" if len(seq) == 1 else "varies"
+        runs = f"median of {doc['reps']} runs, one prompt, canvas {canvas}"
+        if out:
+            out.append("")
+        if is_gpu(doc):
+            gpu_desc = (m.get("gpu") or "unknown GPU").split(",")[0].strip()
+            out += [
+                f"**{label} on the GPU, forward pass alone**: {gpu_desc}; {runs}.",
+                "",
+                "| Runtime | ms / step | forward pass alone |",
+                "|---|---:|---:|",
+            ]
+            g = s.get("mojo-dllm-gpu")
+            lb = s.get("llama-bench-cuda")
+            if g:
+                out.append(f"| mojo-dllm `--device gpu` | {g['ms_per_step_median']:,.0f} | {g['forward_ms_median']:,.0f} ms |")
+            if lb:
+                out.append(f"| llama.cpp CUDA, `llama-bench -p {seq[0]}` | | {lb['forward_ms_median']:,.0f} ms |")
+        else:
+            out += [
+                f"**{label}, llama.cpp thread sweep and forward pass alone**: {m['cpu']}; {runs}.",
+                "",
+                "| Runtime | threads | ms / step | forward pass alone |",
+                "|---|---:|---:|---:|",
+            ]
+            mj = s.get("mojo-dllm")
+            if mj:
+                out.append(
+                    f"| mojo-dllm | {c['threads']} | {mj['ms_per_step_median']:,.0f} | {mj['forward_ms_median']:,.0f} ms |"
+                )
+            ts = sorted({int(k.split(":t")[1]) for k in s if k.startswith(("llama.cpp:t", "llama-bench:t"))})
+            for t in ts:
+                d = s.get(f"llama.cpp:t{t}")
+                lb = s.get(f"llama-bench:t{t}")
+                step = f"{d['ms_per_step_median']:,.0f}" if d and d["ms_per_step_median"] else ""
+                fwd = f"{lb['forward_ms_median']:,.0f} ms" if lb and lb["forward_ms_median"] else ""
+                out.append(f"| llama.cpp | {t} | {step} | {fwd} |")
+        busy = [r["cpu_busy_before"] for r in doc["runs"]]
+        steps = "" if is_gpu(doc) else "The ms / step column runs `llama-diffusion-cli`. "
+        cpu_note = "" if is_gpu(doc) else f" CPU busy before a run: at most {max(busy):.0%}."
+        out += [
+            "",
+            f"{steps}The forward pass alone is mojo-dllm's measured forward pass against llama.cpp's "
+            f"`llama-bench` at the same token count. `llama-bench` applies a causal mask and computes "
+            f"logits for one position; mojo-dllm's figure includes logits for up to "
+            f"{c['block_length']} positions and copying the canvas in.{cpu_note} "
+            f"Evidence: `bench/results/{f.name}`.",
+        ]
+    return "\n".join(out)
+
+
 def render() -> str:
     groups = load()
-    order = sorted(groups, key=lambda k: (not k.startswith("LLaDA"), k))
+    order = sorted(groups, key=lambda k: (not k.startswith("LLaDA"), groups[k]["gpu"], k))
     out: list[str] = []
     for label in order:
         g = groups[label]
@@ -74,14 +157,27 @@ def render() -> str:
         m = meta["machine"]
         if out:
             out.append("")
-        out += [
-            f"**{label}**, Q4_K_M. {m['cpu']}, {c['threads']} threads, {m['ram_gb']} GB RAM, "
-            f"`{m['power_profile']}` power profile. Each prompt: {c['gen_length']} generated tokens, "
-            f"{c['steps']} denoising steps; median of {meta['reps']} runs x {len(c['prompts'])} prompts.",
-            "",
-            "| Runtime | ms / step | tokens / s | startup | peak RSS | language |",
-            "|---|---:|---:|---:|---:|---|",
-        ]
+        if g["gpu"]:
+            gpu_desc = m.get("gpu") or "unknown GPU"
+            parts = [p.strip() for p in gpu_desc.split(",")]
+            where = f"{parts[0]} ({parts[2]}, driver {parts[1]}), host {m['cpu']}" if len(parts) == 3 else gpu_desc
+            out += [
+                f"**{label.removesuffix(' (GPU)')}** on the GPU, Q4_K_M. {where}. Each prompt: "
+                f"{c['gen_length']} generated tokens, {c['steps']} denoising steps; median of "
+                f"{meta['reps']} runs x {len(c['prompts'])} prompts. Peak RSS is host memory.",
+                "",
+                "| Runtime | ms / step | tokens / s | startup | peak RSS | language |",
+                "|---|---:|---:|---:|---:|---|",
+            ]
+        else:
+            out += [
+                f"**{label}**, Q4_K_M. {m['cpu']}, {c['threads']} threads, {m['ram_gb']} GB RAM, "
+                f"`{m['power_profile']}` power profile. Each prompt: {c['gen_length']} generated tokens, "
+                f"{c['steps']} denoising steps; median of {meta['reps']} runs x {len(c['prompts'])} prompts.",
+                "",
+                "| Runtime | ms / step | tokens / s | startup | peak RSS | language |",
+                "|---|---:|---:|---:|---:|---|",
+            ]
         for key, row_label, lang in ROWS:
             s = merged.get(key)
             if s is None:
@@ -103,23 +199,27 @@ def render() -> str:
                 "† Not the same work: the inter-step cache reuses stale K/V and `entropy_exit` can stop early. "
                 "Shown because it is diffuse-cpp's recommended mode.",
             ]
+    fair = fairness()
+    if fair:
+        out += ["", fair]
     return "\n".join(out)
 
 
 def parity() -> tuple[str, str]:
-    """Logit and generation parity tables, one section per architecture (newest file each)."""
+    """Logit and generation parity tables, one section per architecture and device (newest file each)."""
     files = sorted((ROOT / "bench" / "parity").glob("*.json"))
     if not files:
         raise SystemExit("bench_table: no parity evidence under bench/parity")
-    newest: dict[str, tuple[pathlib.Path, dict]] = {}
+    newest: dict[tuple[str, str], tuple[pathlib.Path, dict]] = {}
     for f in files:
         doc = json.loads(f.read_text())
-        newest[doc.get("arch", "llada")] = (f, doc)
+        newest[(doc.get("arch", "llada"), doc.get("device", "cpu"))] = (f, doc)
     lg: list[str] = []
     gn: list[str] = []
-    for arch in sorted(newest, key=lambda a: a != "llada"):
-        f, doc = newest[arch]
-        name = doc.get("model", arch)
+    for key in sorted(newest, key=lambda k: (k[0] != "llada", k[0], k[1] != "cpu")):
+        arch, device = key
+        f, doc = newest[key]
+        name = doc.get("model", arch) + (", GPU" if device == "gpu" else "")
         src = f"`bench/parity/{f.name}` (mojo-dllm `{doc['versions']['mojo-dllm']}`)"
         if lg:
             lg.append("")
@@ -137,6 +237,26 @@ def parity() -> tuple[str, str]:
                 f"{c['masked_median_cosine']:.5f} | {c['min_cosine']:.4f} (row {c['worst_rows'][0]}) | "
                 f"{c['median_rel_rms']:.3f} | {c['argmax_agree']} / {c['rows']} | {c['mean_top5_overlap']:.2f} / 5 |"
             )
+        if "reference2" in doc:
+            r2 = doc["reference2"]
+            lg += [
+                "",
+                f"The same canvases against a second reference, {r2}, and the two references "
+                "against each other:",
+                "",
+                "| Canvas | compared | median cosine | worst cosine | median rel. RMS | same argmax |",
+                "|---:|---|---:|---:|---:|---:|",
+            ]
+            for c in doc["logits"]:
+                for label, m in (
+                    ("mojo-dllm vs llama.cpp CPU", c),
+                    (f"mojo-dllm vs {r2}", c["vs_ref2"]),
+                    (f"llama.cpp CPU vs {r2}", c["ref_vs_ref2"]),
+                ):
+                    lg.append(
+                        f"| {c['seq_len']} tokens | {label} | {m['median_cosine']:.5f} | "
+                        f"{m['min_cosine']:.4f} | {m['median_rel_rms']:.3f} | {m['argmax_agree']} / {m['rows']} |"
+                    )
         lg += ["", f"Evidence: {src}."]
         gn += [
             f"**{name}**",

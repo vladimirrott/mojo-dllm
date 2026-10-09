@@ -14,7 +14,9 @@ Measurement hygiene, all recorded in the output:
   * each run starts only when the 1-minute load average is below a threshold;
   * a watchdog kills any process named exactly `pytest` while the benchmark
     runs (other sessions on this machine launch test suites that would
-    otherwise compete for the CPU) and logs every kill;
+    otherwise compete for the CPU) and logs every kill. A config can turn it
+    off with "kill_pytest": false, as the GPU configs do: a GPU run barely
+    touches the CPU, and killing someone's tests for it is not worth it;
   * the power profile is set to `performance` and restored on exit.
 
 Nothing here estimates a number. A run that fails or prints no timing is
@@ -128,19 +130,29 @@ def run_mojo(c: dict, prompt: str, threads: int, extra: list[str]) -> dict:
         ms_per_step=j["ms_per_step"], forward_passes=j["forward_passes"],
         startup_s=wall - j["generate_s"], seq_len=j["prompt_tokens"] + j["gen_length"],
         prompt_tokens=j["prompt_tokens"], text=j["text"],
+        forward_ms=j.get("forward_ms"),
         gemm_ms_per_forward=j["gemm_ms_per_forward"], attention_ms_per_forward=j["attention_ms_per_forward"],
         lm_head_ms_per_forward=j["lm_head_ms_per_forward"],
     )
 
 
-def run_llama(c: dict, prompt: str, threads: int, seq_len: int) -> dict:
+def run_llama(c: dict, prompt: str, threads: int, seq_len: int, cuda: bool = False) -> dict:
+    """llama.cpp's diffusion example; with cuda, the build-cuda tree and every layer offloaded."""
+    build = "build-cuda" if cuda else "build"
     cmd = [
-        c["llama_cpp"] + "/build/bin/llama-diffusion-cli", "-m", c["models"]["gguf"], "-p", prompt,
+        c["llama_cpp"] + f"/{build}/bin/llama-diffusion-cli", "-m", c["models"]["gguf"], "-p", prompt,
         "-c", str(seq_len), "-b", str(seq_len), "-ub", str(seq_len),
         "--diffusion-steps", str(c["steps"]), "--diffusion-eps", "0.001",
         "--temp", "0", "-t", str(threads), "-tb", str(threads), "--seed", "42",
-    ]
+    ] + (["-ngl", "99", "-v"] if cuda else [])
     rc, out, err, wall, rss = timed(cmd)
+    if cuda:
+        # A CUDA build that fails to find the GPU falls back to the CPU and
+        # still prints a timing; refuse that rather than label it CUDA. With
+        # -v, llama.cpp names the device of every layer it loads.
+        devices = re.findall(r"layer\s+\d+ assigned to device (\w+)", err + out)
+        if not devices or any(not d.startswith("CUDA") for d in devices):
+            return dict(ok=False, rc=rc, error=f"CUDA run did not put every layer on the GPU: {sorted(set(devices))}")
     m = re.search(r"total time: ([0-9.]+)ms, time per step: ([0-9.]+)ms", err + out)
     if rc != 0 or not m:
         return dict(ok=False, rc=rc, error=(err or out)[-400:])
@@ -148,12 +160,47 @@ def run_llama(c: dict, prompt: str, threads: int, seq_len: int) -> dict:
     # diffusion-cli prints the timing line from inside the generator, then logs
     # the text; drop its trailing llama_perf/teardown lines.
     tail = (err + out)[m.end():]
-    text = "\n".join(l for l in tail.splitlines() if not l.startswith(("llama_", "common_", "main:"))).strip()
+    # With -v (CUDA runs) llama.cpp also prints timestamped log lines such as
+    # "0.01.487.312 D load_tensors: ..."; drop those too.
+    text = "\n".join(
+        l for l in tail.splitlines()
+        if not l.startswith(("llama_", "common_", "main:")) and not re.match(r"\d+\.\d+\.\d+\.\d+ [DIWE] ", l)
+    ).strip()
     return dict(
         ok=True, wall_s=wall, peak_rss_bytes=rss, generate_s=total,
         ms_per_step=float(m.group(2)), forward_passes=c["steps"], startup_s=wall - total,
         seq_len=seq_len, text=text[-600:],
     )
+
+
+def run_llama_bench(c: dict, threads: int, seq_len: int, cuda: bool = False) -> dict:
+    """One forward pass over seq_len tokens, from llama.cpp's own llama-bench.
+
+    This is the kernels alone: no sampler and no logits beyond the last
+    position, against mojo-dllm's measured forward pass. llama-bench applies a
+    causal mask, which makes its attention a little cheaper than the
+    bidirectional attention a diffusion model needs.
+    """
+    build = "build-cuda" if cuda else "build"
+    cmd = [
+        c["llama_cpp"] + f"/{build}/bin/llama-bench", "-m", c["models"]["gguf"], "-p", str(seq_len),
+        "-n", "0", "-b", str(seq_len), "-ub", str(seq_len), "-t", str(threads), "-r", "3", "-o", "json",
+    ] + (["-ngl", "99"] if cuda else ["-ngl", "0"])
+    rc, out, err, wall, rss = timed(cmd)
+    try:
+        rows = json.loads(out)
+        r = rows[0]
+        if r["n_prompt"] != seq_len:
+            raise ValueError(f"llama-bench ran {r['n_prompt']} tokens, not {seq_len}")
+        if cuda and "CUDA" not in str(r.get("backends", "")):
+            raise ValueError(f"llama-bench ran on {r.get('backends')!r}, not CUDA")
+    except (ValueError, KeyError, IndexError) as e:
+        return dict(ok=False, rc=rc, error=f"{e}: {(err or out)[-300:]}")
+    if rc != 0:
+        return dict(ok=False, rc=rc, error=(err or out)[-400:])
+    return dict(ok=True, wall_s=wall, peak_rss_bytes=rss, forward_ms=r["avg_ns"] / 1e6,
+                forward_samples_ms=[x / 1e6 for x in r["samples_ns"]], seq_len=seq_len,
+                n_threads=r["n_threads"])
 
 
 def run_diffuse(c: dict, token_ids: str, threads: int, prompt_tokens: int, mode: str) -> dict:
@@ -233,6 +280,7 @@ def main() -> int:
 
     kills: list[dict] = []
     wd = Watchdog("pytest", kills)
+    kill_pytest = c.get("kill_pytest", True)
     profile_before = sh("powerprofilesctl get")
     results: list[dict] = []
     out_path = pathlib.Path(args.out or ROOT / f"bench/results/{dt.date.today().isoformat()}-cpu.json")
@@ -252,12 +300,14 @@ def main() -> int:
             bad = [r for r in results if r["runtime"] == rt and not r["ok"]]
             summary[rt] = dict(
                 runs_ok=len(ok), runs_failed=len(bad),
-                ms_per_step_median=median_or_none([r["ms_per_step"] for r in ok]),
-                generate_s_median=median_or_none([r["generate_s"] for r in ok]),
-                tokens_per_s_median=median_or_none([c["gen_length"] / r["generate_s"] for r in ok]),
-                startup_s_median=median_or_none([r["startup_s"] for r in ok]),
+                ms_per_step_median=median_or_none([r["ms_per_step"] for r in ok if "ms_per_step" in r]),
+                generate_s_median=median_or_none([r["generate_s"] for r in ok if "generate_s" in r]),
+                tokens_per_s_median=median_or_none(
+                    [c["gen_length"] / r["generate_s"] for r in ok if "generate_s" in r]),
+                startup_s_median=median_or_none([r["startup_s"] for r in ok if "startup_s" in r]),
                 peak_rss_gb_max=max((r["peak_rss_bytes"] for r in ok), default=0) / 1e9 or None,
-                forward_passes_median=median_or_none([r["forward_passes"] for r in ok]),
+                forward_passes_median=median_or_none([r["forward_passes"] for r in ok if "forward_passes" in r]),
+                forward_ms_median=median_or_none([r["forward_ms"] for r in ok if r.get("forward_ms") is not None]),
             )
         return summary
 
@@ -268,7 +318,9 @@ def main() -> int:
             date=dt.datetime.now().isoformat(timespec="seconds"),
             machine=dict(cpu=sh("lscpu | sed -n 's/^Model name:\\s*//p'"), kernel=platform.release(),
                          ram_gb=round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9, 1),
-                         power_profile="performance", logical_cpus=os.cpu_count()),
+                         power_profile="performance", logical_cpus=os.cpu_count(),
+                         gpu=sh("nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader")
+                         or None),
             versions=versions,
             config=json.loads(pathlib.Path(args.config).read_text()), reps=args.reps, summary=summary,
             watchdog_kills=kills, runs=results,
@@ -282,7 +334,8 @@ def main() -> int:
     signal.signal(signal.SIGTERM, on_term)
     try:
         subprocess.run(["powerprofilesctl", "set", "performance"], check=True)
-        wd.start()
+        if kill_pytest:
+            wd.start()
         threads = c["threads"]
         tok_cache: dict[str, tuple[str, int]] = {}
         for p in c["prompts"]:
@@ -301,10 +354,20 @@ def main() -> int:
                     t_start = dt.datetime.now().isoformat(timespec="seconds")
                     if rt == "mojo-dllm":
                         r = run_mojo(c, p, threads, [])
+                    elif rt == "mojo-dllm-gpu":
+                        r = run_mojo(c, p, threads, ["--device", "gpu"])
                     elif rt == "mojo-dllm-full-logits":
                         r = run_mojo(c, p, threads, ["--full-logits"])
                     elif rt == "llama.cpp":
                         r = run_llama(c, p, threads, seq_len)
+                    elif rt == "llama.cpp-cuda":
+                        r = run_llama(c, p, threads, seq_len, cuda=True)
+                    elif rt.startswith("llama.cpp:t"):
+                        r = run_llama(c, p, int(rt.removeprefix("llama.cpp:t")), seq_len)
+                    elif rt.startswith("llama-bench:t"):
+                        r = run_llama_bench(c, int(rt.removeprefix("llama-bench:t")), seq_len)
+                    elif rt == "llama-bench-cuda":
+                        r = run_llama_bench(c, threads, seq_len, cuda=True)
                     elif rt == "diffuse-cpp":
                         r = run_diffuse(c, ids, threads, n_prompt, "equal")
                     elif rt == "diffuse-cpp-cache-entropy-exit":
@@ -315,7 +378,12 @@ def main() -> int:
                              cpu_busy_before=round(load, 3), waited_s=round(waited, 1))
                     results.append(r)
                     write_doc(partial=True)
-                    status = f"{r['ms_per_step']:.0f} ms/step" if r["ok"] else f"FAILED rc={r.get('rc')}"
+                    if not r["ok"]:
+                        status = f"FAILED rc={r.get('rc')}"
+                    elif "ms_per_step" in r:
+                        status = f"{r['ms_per_step']:.0f} ms/step"
+                    else:
+                        status = f"{r['forward_ms']:.0f} ms/forward"
                     print(f"rep {rep} prompt {pi} {rt:32s} {status}  busy before {load:.1%}", flush=True)
     finally:
         wd.stop.set()
@@ -323,7 +391,7 @@ def main() -> int:
 
     summary = write_doc(partial=False)
     print(json.dumps(summary, indent=2))
-    print(f"watchdog killed {len(kills)} pytest process(es)")
+    print(f"watchdog killed {len(kills)} pytest process(es)" if kill_pytest else "watchdog off (kill_pytest: false)")
     print(f"wrote {out_path}")
     failed = sum(s["runs_failed"] for s in summary.values())
     return 1 if failed else 0
