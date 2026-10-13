@@ -5,3 +5,4 @@ site/
 book/
 *.f32.tmp
 __pycache__/
+bench/eval/runs/PAUSE

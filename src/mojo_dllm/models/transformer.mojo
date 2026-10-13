@@ -209,6 +209,18 @@ trait DenoisingModel:
         """
         ...
 
+    def forward_window(
+        mut self,
+        tokens: List[Int],
+        lo: Int,
+        hi: Int,
+        out_rows: List[Int],
+        logits: F32Ptr,
+    ) raises:
+        """Recompute rows [lo, hi) only, against the K/V cache (see DiffusionLM).
+        """
+        ...
+
     def model_name(self) raises -> String:
         """`general.name` from the GGUF, or "?"."""
         ...
@@ -247,8 +259,20 @@ struct DiffusionLM(DenoisingModel, Movable):
     var rs: Floats
     var qa_h: QActs
     var qa_f: QActs
+    var kv_cache: Bool
+    """Keep every layer's K and V across forward passes (forward_window)."""
+    var kc: Floats
+    var vc: Floats
+    var cache_tokens: Int
+    """Canvas length of the last full pass that filled the cache, or -1."""
 
-    def __init__(out self, path: String, threads: Int, max_tokens: Int) raises:
+    def __init__(
+        out self,
+        path: String,
+        threads: Int,
+        max_tokens: Int,
+        kv_cache: Bool = False,
+    ) raises:
         var t0 = perf_counter_ns()
         self.gguf = GGUFFile(path)
         self.cfg = ModelConfig(self.gguf)
@@ -283,6 +307,11 @@ struct DiffusionLM(DenoisingModel, Movable):
         rope_table(L, c.head_dim, c.theta, 0, self.rc.ptr(), self.rs.ptr())
         self.qa_h = QActs(L, c.hidden)
         self.qa_f = QActs(L, c.ffn)
+        self.kv_cache = kv_cache
+        var cache_n = c.n_layers * L * c.kv_dim() if kv_cache else 0
+        self.kc = Floats(cache_n)
+        self.vc = Floats(cache_n)
+        self.cache_tokens = -1
         self.timings = Timings()
         self.load_seconds = Float64(perf_counter_ns() - t0) / 1e9
 
@@ -309,6 +338,26 @@ struct DiffusionLM(DenoisingModel, Movable):
     ) raises:
         """Logits for `out_rows` (ascending forward-pass rows), written as [len(out_rows), vocab].
         """
+        self.forward_window(tokens, 0, len(tokens), out_rows, logits)
+
+    def forward_window(
+        mut self,
+        tokens: List[Int],
+        lo: Int,
+        hi: Int,
+        out_rows: List[Int],
+        logits: F32Ptr,
+    ) raises:
+        """Like `forward`, recomputing only rows [lo, hi) against cached K/V.
+
+        A full window (0, len(tokens)) is an ordinary forward pass; with the
+        K/V cache on it also refills the cache. A narrower window needs the
+        cache: its rows get fresh Q, K and V (the K and V overwrite their
+        cache rows) and attend to every cached row, so the rows outside the
+        window keep the K/V of the last pass that computed them. That is
+        Fast-dLLM's DualCache, approximate once a window row has changed.
+        `out_rows` must lie inside the window.
+        """
         var c = self.cfg
         var L = len(tokens)
         var n_out = len(out_rows)
@@ -319,24 +368,37 @@ struct DiffusionLM(DenoisingModel, Movable):
                 + " tokens exceeds the runtime limit of "
                 + String(self.max_tokens)
             )
+        if lo < 0 or hi > L or lo >= hi:
+            raise Error(
+                "forward window must be a non-empty range inside the input"
+            )
+        var full = lo == 0 and hi == L
+        if not full and not self.kv_cache:
+            raise Error("a partial forward window needs the K/V cache")
+        if not full and self.cache_tokens != L:
+            raise Error(
+                "the K/V cache does not hold this canvas; run a full pass first"
+            )
         if n_out == 0:
             raise Error("forward called with no output rows")
         for j in range(n_out):
             if (
-                out_rows[j] < 0
-                or out_rows[j] >= L
+                out_rows[j] < lo
+                or out_rows[j] >= hi
                 or (j > 0 and out_rows[j] <= out_rows[j - 1])
             ):
                 raise Error(
-                    "output rows must be ascending positions inside the input"
+                    "output rows must be ascending positions inside the window"
                 )
         var d = c.hidden
         var kvd = c.kv_dim()
+        var half = c.head_dim // 2
         var t_start = perf_counter_ns()
         var row_bytes = self.embd.row_bytes()
         var base = self.gguf.data_addr(self.embd)
-        for i in range(L):
-            var tok = tokens[i]
+        var rows = hi - lo
+        for i in range(rows):
+            var tok = tokens[lo + i]
             if tok < 0 or tok >= c.vocab:
                 raise Error(
                     "token id " + String(tok) + " is outside the vocabulary"
@@ -347,9 +409,20 @@ struct DiffusionLM(DenoisingModel, Movable):
                 self.x.ptr().unsafe_offset(i * d),
                 d,
             )
+        # Keys and values: the cache when it is on (rows lo..hi of each layer),
+        # else the scratch buffers. Attention reads every cached row.
+        var n_keys = L if self.kv_cache else rows
+        var rc = self.rc.ptr().unsafe_offset(lo * half)
+        var rs = self.rs.ptr().unsafe_offset(lo * half)
 
-        var rows = L
         for li in range(c.n_layers):
+            var kbase = self.k.ptr()
+            var vbase = self.v.ptr()
+            if self.kv_cache:
+                kbase = self.kc.ptr().unsafe_offset(li * self.max_tokens * kvd)
+                vbase = self.vc.ptr().unsafe_offset(li * self.max_tokens * kvd)
+            var kw = kbase.unsafe_offset(lo * kvd if self.kv_cache else 0)
+            var vw = vbase.unsafe_offset(lo * kvd if self.kv_cache else 0)
             rmsnorm(
                 self.x.ptr(),
                 self.layers[li].attn_norm.ptr(),
@@ -369,56 +442,47 @@ struct DiffusionLM(DenoisingModel, Movable):
                 self.threads,
             )
             self.timings.gemm_ns += _timed_gemm(
-                self.layers[li].wk,
-                self.qa_h,
-                rows,
-                self.k.ptr(),
-                kvd,
-                self.threads,
+                self.layers[li].wk, self.qa_h, rows, kw, kvd, self.threads
             )
             self.timings.gemm_ns += _timed_gemm(
-                self.layers[li].wv,
-                self.qa_h,
-                rows,
-                self.v.ptr(),
-                kvd,
-                self.threads,
+                self.layers[li].wv, self.qa_h, rows, vw, kvd, self.threads
             )
             var ta = perf_counter_ns()
             if self.layers[li].has_bias:
                 add_bias(self.q.ptr(), self.layers[li].bq.ptr(), rows, d)
-                add_bias(self.k.ptr(), self.layers[li].bk.ptr(), rows, kvd)
-                add_bias(self.v.ptr(), self.layers[li].bv.ptr(), rows, kvd)
+                add_bias(kw, self.layers[li].bk.ptr(), rows, kvd)
+                add_bias(vw, self.layers[li].bv.ptr(), rows, kvd)
             rope_apply(
                 self.q.ptr(),
                 rows,
                 c.n_heads,
                 c.head_dim,
-                self.rc.ptr(),
-                self.rs.ptr(),
+                rc,
+                rs,
                 c.rope_neox,
                 self.threads,
             )
             rope_apply(
-                self.k.ptr(),
+                kw,
                 rows,
                 c.n_kv_heads,
                 c.head_dim,
-                self.rc.ptr(),
-                self.rs.ptr(),
+                rc,
+                rs,
                 c.rope_neox,
                 self.threads,
             )
             attention(
                 self.q.ptr(),
-                self.k.ptr(),
-                self.v.ptr(),
+                kbase,
+                vbase,
                 self.att.ptr(),
                 rows,
                 c.n_heads,
                 c.n_kv_heads,
                 c.head_dim,
                 self.threads,
+                n_keys,
             )
             self.timings.attn_ns += Int(perf_counter_ns() - ta)
             quantize_acts(self.att.ptr(), rows, d, self.qa_h)
@@ -433,7 +497,7 @@ struct DiffusionLM(DenoisingModel, Movable):
             if li == c.n_layers - 1 and n_out < rows:
                 # Only the requested positions continue past attention.
                 for j in range(n_out):
-                    var r = out_rows[j]
+                    var r = out_rows[j] - lo
                     if r != j:
                         for e in range(d):
                             self.x[j * d + e] = self.x[r * d + e]
@@ -480,7 +544,7 @@ struct DiffusionLM(DenoisingModel, Movable):
 
         if rows != n_out:
             for j in range(n_out):
-                var r = out_rows[j]
+                var r = out_rows[j] - lo
                 if r != j:
                     for e in range(d):
                         self.x[j * d + e] = self.x[r * d + e]
@@ -497,6 +561,8 @@ struct DiffusionLM(DenoisingModel, Movable):
         var th = perf_counter_ns()
         pgemm(self.output, self.qa_h, n_out, logits, c.vocab, self.threads)
         var t_end = perf_counter_ns()
+        if full and self.kv_cache:
+            self.cache_tokens = L
         self.timings.head_ns += Int(t_end - th)
         self.timings.forwards += 1
         self.timings.total_ns += Int(t_end - t_start)

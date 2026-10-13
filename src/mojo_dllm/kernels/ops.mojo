@@ -159,10 +159,13 @@ def attention(
     n_kv_heads: Int,
     head_dim: Int,
     threads: Int,
+    n_keys: Int = -1,
 ) raises:
     """o = softmax(q k^T / sqrt(d)) v per head, no mask.
 
-    q and o rows are [L, n_heads*d]; k and v rows are [L, n_kv_heads*d].
+    q and o rows are [L, n_heads*d]; k and v rows are [n_keys, n_kv_heads*d],
+    n_keys defaulting to L. A K/V cache passes more keys than queries: the
+    rows of one block attend to the whole canvas.
     With grouped-query attention, query head h reads KV head
     h // (n_heads / n_kv_heads), as Qwen2 and llama.cpp do.
 
@@ -177,8 +180,9 @@ def attention(
     var kv_stride = n_kv_heads * head_dim
     var group = n_heads // n_kv_heads
     var scale = Float32(1.0 / sqrt(Float64(head_dim)))
+    var NK = L if n_keys < 0 else n_keys
     var nqb = (L + QB - 1) // QB
-    var scores = Floats(n_heads * nqb * QB * L)
+    var scores = Floats(n_heads * nqb * QB * NK)
     var sp = scores.ptr()
 
     def work(item: Int) {imm}:
@@ -186,8 +190,8 @@ def attention(
         var kvh = h // group
         var i0 = (item % nqb) * QB
         var nq = min(QB, L - i0)
-        var rows = sp.unsafe_offset(item * QB * L)
-        for j in range(L):
+        var rows = sp.unsafe_offset(item * QB * NK)
+        for j in range(NK):
             var kj = k.unsafe_offset(j * kv_stride + kvh * head_dim)
             var acc = Array[SIMD[DType.float32, W], QB](
                 fill=SIMD[DType.float32, W](0)
@@ -204,17 +208,17 @@ def attention(
                         )
             comptime for t in range(QB):
                 if t < nq:
-                    rows.unsafe_store(t * L + j, acc[t].reduce_add() * scale)
+                    rows.unsafe_store(t * NK + j, acc[t].reduce_add() * scale)
         for t in range(nq):
-            softmax_inplace(rows.unsafe_offset(t * L), L)
+            softmax_inplace(rows.unsafe_offset(t * NK), NK)
         for t in range(nq):
-            var row = rows.unsafe_offset(t * L)
+            var row = rows.unsafe_offset(t * NK)
             var oi = o.unsafe_offset((i0 + t) * stride + h * head_dim)
             for half in range(0, head_dim, 64):
                 var acc = Array[SIMD[DType.float32, W], 8](
                     fill=SIMD[DType.float32, W](0)
                 )
-                for j in range(L):
+                for j in range(NK):
                     var pj = row.unsafe_load(j)
                     var vj = v.unsafe_offset(
                         j * kv_stride + kvh * head_dim + half

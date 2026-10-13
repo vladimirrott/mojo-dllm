@@ -197,6 +197,7 @@ def _attention_kernel[
     v: F32Ptr,
     o: F32Ptr,
     L: Int32,
+    Lk: Int32,
     heads: Int32,
     kv_heads: Int32,
     scale: Float32,
@@ -220,6 +221,7 @@ def _attention_kernel[
         KT * HD, Float32, address_space=AddressSpace.SHARED
     ]()
     var n = Int(L)
+    var nk = Int(Lk)
     var h = Int(block_idx.y)
     var q0 = Int(block_idx.x) * QT
     var kvh = h // (Int(heads) // Int(kv_heads))
@@ -239,7 +241,7 @@ def _attention_kernel[
     var l = SIMD[DType.float32, 2](0)
     var acc = SIMD[DType.float32, 2 * DL](0)
     var kt = 0
-    while kt < n:
+    while kt < nk:
         barrier()
         comptime for i in range(KT * HD // NT):
             var idx = th + i * NT
@@ -247,14 +249,14 @@ def _attention_kernel[
             var d = idx % HD
             var kv_ = Float32(0)
             var vv = Float32(0)
-            if kt + j < n:
+            if kt + j < nk:
                 var src = (kt + j) * kv_stride + kvh * HD + d
                 kv_ = k[unsafe_offset=src]
                 vv = v[unsafe_offset=src]
             sK[unsafe_offset=j * (HD + 1) + d] = kv_
             sV[unsafe_offset=idx] = vv
         barrier()
-        var valid = kt + lane < n
+        var valid = kt + lane < nk
         comptime for e in range(2):
             var qrow = sQ.unsafe_offset((2 * warp + e) * HD)
             var krow = sK.unsafe_offset(lane * (HD + 1))
@@ -296,19 +298,23 @@ def attention_gpu(
     heads: Int,
     kv_heads: Int,
     head_dim: Int,
+    n_keys: Int = -1,
 ) raises:
+    """o = softmax(q k^T / sqrt(d)) v for L query rows over n_keys key rows
+    (default L); with a K/V cache the keys are the whole canvas."""
     var scale = Float32(1.0 / sqrt(Float64(head_dim)))
     var grid = (_cdiv(L, QT), heads)
     var Li = Int32(L)
+    var Lki = Int32(L if n_keys < 0 else n_keys)
     var hi = Int32(heads)
     var kvi = Int32(kv_heads)
     if head_dim == 128:
         ctx.enqueue_function[_attention_kernel[128]](
-            q, k, v, o, Li, hi, kvi, scale, grid_dim=grid, block_dim=NT
+            q, k, v, o, Li, Lki, hi, kvi, scale, grid_dim=grid, block_dim=NT
         )
     elif head_dim == 64:
         ctx.enqueue_function[_attention_kernel[64]](
-            q, k, v, o, Li, hi, kvi, scale, grid_dim=grid, block_dim=NT
+            q, k, v, o, Li, Lki, hi, kvi, scale, grid_dim=grid, block_dim=NT
         )
     else:
         raise Error(

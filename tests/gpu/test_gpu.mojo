@@ -422,5 +422,116 @@ def test_forward_subset_rows_match_full() raises:
     assert_true(worst < 1e-3, "subset rows differ by " + String(worst))
 
 
+def test_attention_more_keys_than_queries_matches_cpu() raises:
+    # With the K/V cache, one block's rows attend over the whole canvas.
+    var ctx = DeviceContext()
+    var L = 9
+    var NK = 40
+    var heads = 4
+    var kvh = 2
+    var hd = 128
+    var q = Floats(L * heads * hd)
+    var k = Floats(NK * kvh * hd)
+    var v = Floats(NK * kvh * hd)
+    _fill(q, 7)
+    _fill(k, 8)
+    _fill(v, 9)
+    for i in range(q.n):
+        q[i] = q[i] * 0.1
+    var want = Floats(L * heads * hd)
+    attention(q.ptr(), k.ptr(), v.ptr(), want.ptr(), L, heads, kvh, hd, 2, NK)
+    var dq = _up(ctx, q)
+    var dk = _up(ctx, k)
+    var dv = _up(ctx, v)
+    var do_ = ctx.enqueue_create_buffer[DType.float32](want.n)
+    attention_gpu(
+        ctx,
+        dev_f32(dq),
+        dev_f32(dk),
+        dev_f32(dv),
+        dev_f32(do_),
+        L,
+        heads,
+        kvh,
+        hd,
+        NK,
+    )
+    var got = _down(ctx, do_, want.n)
+    assert_true(
+        _max_abs(got, want) < 1e-4,
+        "attention over cached keys " + String(_max_abs(got, want)),
+    )
+
+
+def _window_rows() -> List[Int]:
+    var r: List[Int] = [3, 4, 6]
+    return r^
+
+
+def test_window_after_full_pass_matches_full() raises:
+    # Right after a full pass the cache is fresh, so a window must give the
+    # full pass's logits for its rows (up to the GEMM tile width, which
+    # depends on the row count).
+    var toks: List[Int] = [5, 17, 300, 511, 511, 42, 511, 7]
+    var all_rows = List[Int]()
+    for i in range(len(toks)):
+        all_rows.append(i)
+    var m = GpuDiffusionLM(
+        FIX + "tiny-llada.gguf", max_tokens=16, kv_cache=True
+    )
+    var full = Floats(len(toks) * 512)
+    m.forward(toks, all_rows, full.ptr())
+    var win = _window_rows()
+    var part = Floats(len(win) * 512)
+    m.forward_window(toks, 3, 7, win, part.ptr())
+    var worst = Float64(0)
+    for j in range(len(win)):
+        for v in range(512):
+            worst = max(
+                worst,
+                abs(
+                    Float64(part[j * 512 + v]) - Float64(full[win[j] * 512 + v])
+                ),
+            )
+    assert_true(worst < 1e-3, "window rows differ by " + String(worst))
+
+
+def test_window_on_a_stale_cache_matches_cpu() raises:
+    # The case the sampler runs: a full pass, then tokens inside the window
+    # change and only the window is recomputed. Keys outside it are stale on
+    # both devices, so the GPU must agree with the CPU window.
+    var toks: List[Int] = [5, 17, 300, 511, 511, 42, 511, 7]
+    var all_rows = List[Int]()
+    for i in range(len(toks)):
+        all_rows.append(i)
+    var cpu = DiffusionLM(
+        FIX + "tiny-llada.gguf", threads=2, max_tokens=16, kv_cache=True
+    )
+    var gpu = GpuDiffusionLM(
+        FIX + "tiny-llada.gguf", max_tokens=16, kv_cache=True
+    )
+    var scratch = Floats(len(toks) * 512)
+    cpu.forward(toks, all_rows, scratch.ptr())
+    gpu.forward(toks, all_rows, scratch.ptr())
+    toks[3] = 250
+    toks[6] = 99
+    var win = _window_rows()
+    var want = Floats(len(win) * 512)
+    var got = Floats(len(win) * 512)
+    cpu.forward_window(toks, 3, 7, win, want.ptr())
+    gpu.forward_window(toks, 3, 7, win, got.ptr())
+    var rel = _rel(got, want)
+    assert_true(rel < 0.02, "stale-cache window gpu vs cpu " + String(rel))
+    for j in range(len(win)):
+        var bg = 0
+        var bw = 0
+        for v in range(512):
+            if got[j * 512 + v] > got[j * 512 + bg]:
+                bg = v
+            if want[j * 512 + v] > want[j * 512 + bw]:
+                bw = v
+        assert_equal(bg, bw, "argmax differs at window row " + String(win[j]))
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

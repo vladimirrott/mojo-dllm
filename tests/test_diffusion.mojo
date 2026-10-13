@@ -220,6 +220,82 @@ def test_early_stop_keeps_the_visible_answer_dream() raises:
     _check_early_stop("tiny-dream.gguf", 510, 16)
 
 
+def _threshold_cfg(threshold: Float64) -> GenConfig:
+    var c = GenConfig()
+    c.gen_length = 16
+    c.block_length = 8
+    c.steps = 16
+    c.mask_id = 511
+    c.early_stop = False
+    c.threshold = threshold
+    return c^
+
+
+def test_threshold_off_or_unreachable_changes_nothing() raises:
+    var m = DiffusionLM(FIX + "tiny-llada.gguf", threads=2, max_tokens=24)
+    var prompt: List[Int] = [5, 17, 300]
+    var base = generate(m, prompt, _threshold_cfg(0.0))
+    var never = generate(m, prompt, _threshold_cfg(1.5))
+    assert_equal(base.forward_passes, 16)
+    assert_equal(never.forward_passes, base.forward_passes)
+    for i in range(len(base.tokens)):
+        assert_equal(never.tokens[i], base.tokens[i], "position " + String(i))
+
+
+def test_threshold_zero_fills_each_block_in_one_step() raises:
+    # Every candidate clears a threshold of 0, so each block is one pass.
+    var m = DiffusionLM(FIX + "tiny-llada.gguf", threads=2, max_tokens=24)
+    var prompt: List[Int] = [5, 17, 300]
+    var all_in = generate(m, prompt, _threshold_cfg(1e-300))
+    assert_equal(all_in.forward_passes, 2)
+    for i in range(3, len(all_in.tokens)):
+        assert_true(all_in.tokens[i] != 511, "mask left at " + String(i))
+
+
+def test_threshold_never_takes_more_passes() raises:
+    var m = DiffusionLM(FIX + "tiny-llada.gguf", threads=2, max_tokens=24)
+    var prompt: List[Int] = [5, 17, 300]
+    var base = generate(m, prompt, _threshold_cfg(0.0))
+    for tau in [0.9, 0.5, 0.1, 0.01]:
+        var r = generate(m, prompt, _threshold_cfg(tau))
+        assert_true(
+            r.forward_passes <= base.forward_passes, "threshold " + String(tau)
+        )
+        for i in range(3, len(r.tokens)):
+            assert_true(r.tokens[i] != 511, "mask left at " + String(i))
+
+
+def test_dual_cache_with_one_step_per_block_is_exact() raises:
+    # One step per block makes every pass a refresh, so the cached run must
+    # match the uncached one token for token.
+    var prompt: List[Int] = [5, 17, 300]
+    var c = _threshold_cfg(0.0)
+    c.steps = 2
+    var plain = DiffusionLM(FIX + "tiny-llada.gguf", threads=2, max_tokens=24)
+    var a = generate(plain, prompt, c)
+    var cached = DiffusionLM(
+        FIX + "tiny-llada.gguf", threads=2, max_tokens=24, kv_cache=True
+    )
+    c.dual_cache = True
+    var b = generate(cached, prompt, c)
+    assert_equal(a.forward_passes, b.forward_passes)
+    for i in range(len(a.tokens)):
+        assert_equal(a.tokens[i], b.tokens[i], "position " + String(i))
+
+
+def test_dual_cache_resolves_every_mask() raises:
+    var prompt: List[Int] = [5, 17, 300]
+    var c = _threshold_cfg(0.0)
+    c.dual_cache = True
+    var m = DiffusionLM(
+        FIX + "tiny-llada.gguf", threads=2, max_tokens=24, kv_cache=True
+    )
+    var r = generate(m, prompt, c)
+    assert_equal(r.forward_passes, 16)
+    for i in range(3, len(r.tokens)):
+        assert_true(r.tokens[i] != 511, "mask left at " + String(i))
+
+
 def test_rejects_bad_block_geometry() raises:
     var m = DiffusionLM(FIX + "tiny-llada.gguf", threads=2, max_tokens=16)
     var prompt: List[Int] = [5]

@@ -15,6 +15,11 @@ semantic versioning (0.y: minor bumps may break things).
 - `scripts/gpu_profile.py` (per-kernel device time from an Nsight Systems
   trace), `bench/bench_gpu_gemm.mojo`, and `bench/eval_gsm8k.py`, a paired
   GSM8K-200 evaluation for changes that are not exact.
+- `--threshold P` (LLaDA): each step also commits every masked token whose
+  confidence reaches P, as Fast-dLLM's parallel decoding does.
+- `--dual-cache` (LLaDA, CPU and GPU): keys and values for every position
+  are cached at the first step of a block, and the block's other steps
+  recompute only its own rows, as Fast-dLLM's DualCache does.
 
 - NVIDIA GPU backend, `--device gpu`, for compute capability 8.0 and newer.
   Projections read the GGUF Q4_K / Q6_K blocks on the GPU and multiply on the

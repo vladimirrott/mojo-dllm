@@ -18,6 +18,8 @@ mojo-dllm logits   --model PATH --tokens IDS --rows POSITIONS --out FILE [--thre
 | `--block-length N` | 32 | LLaDA's semi-autoregressive block size; must divide `--max-tokens`. Dream ignores it |
 | `--temperature T` | 0 | 0 is greedy; above 0 adds Gumbel noise as LLaDA does |
 | `--remasking S` | `low_confidence` | LLaDA: `low_confidence` or `random`. Dream: `entropy` (the default), `maskgit_plus`, `topk_margin` |
+| `--threshold P` | 0 (off) | LLaDA: each step also commits every masked token whose confidence is at least P, so easy blocks finish in fewer steps (Fast-dLLM's parallel decoding). A step still commits at least what the schedule says. Not exact: see [Benchmarks](benchmarks.md#steps-and-quality) for its measured effect on accuracy |
+| `--dual-cache` | off | LLaDA: cache every position's keys and values and, inside a block, recompute only that block's rows (Fast-dLLM's DualCache). The cache is refreshed at the first step of each block. Not exact: the prompt and later blocks see keys from the block's first step; see [Benchmarks](benchmarks.md#steps-and-quality) for its measured effect on accuracy. Cannot combine with `--full-logits` |
 | `--seed N` | 42 | seeds this program's PRNG (it does not reproduce a PyTorch run) |
 | `--threads N` | all logical CPUs | worker threads (with `--device gpu`, only the sampler uses them) |
 | `--device D` | `cpu` | `cpu`, or `gpu` for an NVIDIA GPU with compute capability 8.0 or newer |

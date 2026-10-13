@@ -11,7 +11,8 @@ usage:
 run --json` and appends one line per problem to bench/eval/runs/ARM.jsonl; a
 stopped run resumes where it left off. The default is the clean baseline: one
 token per denoising step (steps = generation length), greedy, LLaDA blocks of
-32. Scoring takes the number after "The answer is", else the last number in
+32. While bench/eval/runs/PAUSE exists, `run` waits between problems.
+Scoring takes the number after "The answer is", else the last number in
 the output, and compares it with the gold answer.
 
 `compare` pairs two arms problem by problem and writes
@@ -34,10 +35,14 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "bench" / "eval" / "gsm8k-200.jsonl"
 RUNS = ROOT / "bench" / "eval" / "runs"
+# While this file exists, `run` waits before starting the next problem, so a
+# timing measurement can have the GPU to itself without stopping the arm.
+PAUSE = RUNS / "PAUSE"
 PROMPT = (
     "{question}\n\nSolve the problem step by step. End with a line of the form "
     '"The answer is N." where N is the final number.'
@@ -111,6 +116,10 @@ def cmd_run(args: argparse.Namespace, extra: list[str]) -> int:
     for k, p in enumerate(problems):
         if p["index"] in done:
             continue
+        if PAUSE.exists():
+            print(f"paused: waiting for {PAUSE.relative_to(ROOT)} to be removed", flush=True)
+            while PAUSE.exists():
+                time.sleep(10)
         cmd = [str(ROOT / "build/mojo-dllm"), "run", "--model", args.model,
                "--prompt", PROMPT.format(question=p["question"])] + flags
         r = subprocess.run(cmd, capture_output=True, text=True)

@@ -153,8 +153,14 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
     var qa_f: GpuQActs
     var host_x: Floats
     var host_idx: Bytes
+    var kv_cache: Bool
+    var kc: DeviceBuffer[DType.float32]
+    var vc: DeviceBuffer[DType.float32]
+    var cache_tokens: Int
 
-    def __init__(out self, path: String, max_tokens: Int) raises:
+    def __init__(
+        out self, path: String, max_tokens: Int, kv_cache: Bool = False
+    ) raises:
         var t0 = perf_counter_ns()
         if DeviceContext.number_of_devices() == 0:
             raise Error(
@@ -249,6 +255,9 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
         var act_bytes = 4 * L * (
             6 * c.hidden + 2 * kvd + 2 * c.ffn + c.vocab + c.head_dim
         ) + 2 * L * (c.hidden + c.ffn)
+        var cache_n = c.n_layers * L * kvd if kv_cache else 1
+        if kv_cache:
+            act_bytes += 2 * 4 * cache_n
         var free_bytes = Int(self.ctx.get_memory_info()[0])
         if plan.size + act_bytes > free_bytes:
             raise Error(
@@ -283,6 +292,10 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
         self.qa_f = GpuQActs(self.ctx, L, c.ffn)
         self.host_x = Floats(L * c.hidden)
         self.host_idx = Bytes(4 * L)
+        self.kv_cache = kv_cache
+        self.kc = self.ctx.enqueue_create_buffer[DType.float32](cache_n)
+        self.vc = self.ctx.enqueue_create_buffer[DType.float32](cache_n)
+        self.cache_tokens = -1
         self.timings = Timings()
         self.load_seconds = 0
         # Synchronizing around each kernel group costs a little, so timing
@@ -392,6 +405,18 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
     def forward(
         mut self, tokens: List[Int], out_rows: List[Int], logits: F32Ptr
     ) raises:
+        self.forward_window(tokens, 0, len(tokens), out_rows, logits)
+
+    def forward_window(
+        mut self,
+        tokens: List[Int],
+        lo: Int,
+        hi: Int,
+        out_rows: List[Int],
+        logits: F32Ptr,
+    ) raises:
+        """Rows [lo, hi) only, against the K/V cache; see DiffusionLM.forward_window.
+        """
         var c = self.cfg
         var L = len(tokens)
         var n_out = len(out_rows)
@@ -402,24 +427,36 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
                 + " tokens exceeds the runtime limit of "
                 + String(self.max_tokens)
             )
+        if lo < 0 or hi > L or lo >= hi:
+            raise Error(
+                "forward window must be a non-empty range inside the input"
+            )
+        var full = lo == 0 and hi == L
+        if not full and not self.kv_cache:
+            raise Error("a partial forward window needs the K/V cache")
+        if not full and self.cache_tokens != L:
+            raise Error(
+                "the K/V cache does not hold this canvas; run a full pass first"
+            )
         if n_out == 0:
             raise Error("forward called with no output rows")
         for j in range(n_out):
             if (
-                out_rows[j] < 0
-                or out_rows[j] >= L
+                out_rows[j] < lo
+                or out_rows[j] >= hi
                 or (j > 0 and out_rows[j] <= out_rows[j - 1])
             ):
                 raise Error(
-                    "output rows must be ascending positions inside the input"
+                    "output rows must be ascending positions inside the window"
                 )
         var d = c.hidden
         var kvd = c.kv_dim()
         var t_start = perf_counter_ns()
         var row_bytes = self.embd.row_bytes()
         var base = self.gguf.data_addr(self.embd)
-        for i in range(L):
-            var tok = tokens[i]
+        var rows = hi - lo
+        for i in range(rows):
+            var tok = tokens[lo + i]
             if tok < 0 or tok >= c.vocab:
                 raise Error(
                     "token id " + String(tok) + " is outside the vocabulary"
@@ -432,10 +469,11 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
             )
         var ip = self.host_idx.i32()
         for j in range(n_out):
-            ip[unsafe_offset=j] = Int32(out_rows[j])
+            ip[unsafe_offset=j] = Int32(out_rows[j] - lo)
         var ctx = self.ctx
         ctx.enqueue_copy(
-            self.x.create_sub_buffer[DType.float32](0, L * d), self.host_x.ptr()
+            self.x.create_sub_buffer[DType.float32](0, rows * d),
+            self.host_x.ptr(),
         )
         ctx.enqueue_copy(
             self.rows_idx.create_sub_buffer[DType.int32](0, n_out), ip
@@ -450,41 +488,49 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
         var g = dev_f32(self.g)
         var u = dev_f32(self.u)
 
-        var rows = L
+        var half = c.head_dim // 2
+        var rc = dev_f32(self.rc).unsafe_offset(lo * half)
+        var rs = dev_f32(self.rs).unsafe_offset(lo * half)
+        var n_keys = L if self.kv_cache else rows
         for li in range(c.n_layers):
             var ly = self.layers[li]
+            # K and V go straight into the cache rows lo..hi when it is on.
+            var kbase = k
+            var vbase = v
+            if self.kv_cache:
+                kbase = dev_f32(self.kc).unsafe_offset(
+                    li * self.max_tokens * kvd
+                )
+                vbase = dev_f32(self.vc).unsafe_offset(
+                    li * self.max_tokens * kvd
+                )
+            var kw = kbase.unsafe_offset(lo * kvd if self.kv_cache else 0)
+            var vw = vbase.unsafe_offset(lo * kvd if self.kv_cache else 0)
             rmsnorm_gpu(ctx, x, self._f32(ly.attn_norm), xn, rows, d, c.eps)
             quantize_gpu(ctx, xn, rows, d, self.qa_h)
             self.timings.gemm_ns += self._gemm(ly.wq, self.qa_h, rows, q, d)
-            self.timings.gemm_ns += self._gemm(ly.wk, self.qa_h, rows, k, kvd)
-            self.timings.gemm_ns += self._gemm(ly.wv, self.qa_h, rows, v, kvd)
+            self.timings.gemm_ns += self._gemm(ly.wk, self.qa_h, rows, kw, kvd)
+            self.timings.gemm_ns += self._gemm(ly.wv, self.qa_h, rows, vw, kvd)
             var ta = self._tick()
             if ly.has_bias:
                 add_bias_gpu(ctx, q, self._f32(ly.bq), rows, d)
-                add_bias_gpu(ctx, k, self._f32(ly.bk), rows, kvd)
-                add_bias_gpu(ctx, v, self._f32(ly.bv), rows, kvd)
+                add_bias_gpu(ctx, kw, self._f32(ly.bk), rows, kvd)
+                add_bias_gpu(ctx, vw, self._f32(ly.bv), rows, kvd)
+            rope_gpu(ctx, q, rows, c.n_heads, c.head_dim, rc, rs, c.rope_neox)
             rope_gpu(
-                ctx,
-                q,
-                rows,
-                c.n_heads,
-                c.head_dim,
-                dev_f32(self.rc),
-                dev_f32(self.rs),
-                c.rope_neox,
-            )
-            rope_gpu(
-                ctx,
-                k,
-                rows,
-                c.n_kv_heads,
-                c.head_dim,
-                dev_f32(self.rc),
-                dev_f32(self.rs),
-                c.rope_neox,
+                ctx, kw, rows, c.n_kv_heads, c.head_dim, rc, rs, c.rope_neox
             )
             attention_gpu(
-                ctx, q, k, v, att, rows, c.n_heads, c.n_kv_heads, c.head_dim
+                ctx,
+                q,
+                kbase,
+                vbase,
+                att,
+                rows,
+                c.n_heads,
+                c.n_kv_heads,
+                c.head_dim,
+                n_keys,
             )
             self.timings.attn_ns += self._tick() - ta
             quantize_gpu(ctx, att, rows, d, self.qa_h)
@@ -524,5 +570,7 @@ struct GpuDiffusionLM(DenoisingModel, Movable):
         )
         ctx.synchronize()
         var t_end = perf_counter_ns()
+        if full and self.kv_cache:
+            self.cache_tokens = L
         self.timings.forwards += 1
         self.timings.total_ns += Int(t_end - t_start)
