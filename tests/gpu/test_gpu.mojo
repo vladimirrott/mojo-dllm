@@ -16,6 +16,7 @@ from mojo_dllm.gpu.kernels import (
     rmsnorm_gpu,
     rope_gpu,
     attention_gpu,
+    _attention_kernel,
     silu_mul_gpu,
     add_gpu,
     add_bias_gpu,
@@ -147,12 +148,11 @@ def test_rope_neox_matches_cpu() raises:
     _check_rope(True)
 
 
-def _check_attention(L: Int, hd: Int) raises:
+def _check_attention(L: Int, hd: Int, kvh: Int = 2) raises:
     # The GPU kernel multiplies in f16 (f32 accumulation), so it matches the
     # f32 CPU kernel to f16 rounding, not to 1e-4.
     var ctx = DeviceContext()
     var heads = 4
-    var kvh = 2
     var q = Floats(L * heads * hd)
     var k = Floats(L * kvh * hd)
     var v = Floats(L * kvh * hd)
@@ -190,6 +190,28 @@ def _check_attention(L: Int, hd: Int) raises:
         + " rel "
         + String(rel),
     )
+    if L >= 512 and hd == 128:
+        # The wide cooperative tile must keep the original 32-key softmax
+        # and P V update order, not just pass a loose f16 error bound.
+        var baseline = ctx.enqueue_create_buffer[DType.float32](want.n)
+        ctx.enqueue_function[_attention_kernel[128]](
+            dev_f32(dq),
+            dev_f32(dk),
+            dev_f32(dv),
+            dev_f32(baseline),
+            Int32(L),
+            Int32(L),
+            Int32(heads),
+            Int32(kvh),
+            Float32(1.0 / sqrt(128.0)),
+            grid_dim=((L + 63) // 64, heads),
+            block_dim=128,
+        )
+        var original = _down(ctx, baseline, want.n)
+        for i in range(want.n):
+            assert_equal(
+                got[i], original[i], "attention update order: " + String(i)
+            )
 
 
 def test_attention_gqa_matches_cpu() raises:
@@ -203,6 +225,12 @@ def test_attention_head_dim_64_matches_cpu() raises:
 def test_attention_many_tiles_matches_cpu() raises:
     # 150 queries: three query blocks, the last ragged; five key tiles.
     _check_attention(150, 128)
+
+
+def test_attention_long_gqa_ragged_tiles_matches_cpu() raises:
+    # Exercises the RTX Blackwell long-GQA dispatch, including a one-key
+    # tail after four 128-key tiles and a partial query block.
+    _check_attention(513, 128, 1)
 
 
 def test_elementwise_ops_match_cpu() raises:
