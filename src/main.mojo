@@ -1,13 +1,13 @@
 """Command line for mojo-dllm.
 
-    mojo-dllm run      --model M --prompt TEXT [--max-tokens N] [--steps N] [--block-length N]
+    mojo-dllm run      --model M (--prompt TEXT | --prompt-file PATH) [--max-tokens N] [--steps N] [--block-length N]
                        [--seed N] [--temperature T] [--threads N] [--device cpu|gpu]
                        [--remasking low_confidence|random] [--threshold P] [--dual-cache]
                        [--no-chat] [--full-logits] [--no-early-stop] [--visual] [--visual-interval N] [--verbose]
                        [--dump-step-stats] [--json]
                        [--eb-steps N] [--eb-t-min T] [--eb-t-max T] [--eb-bound B]
                        [--eb-stability N] [--eb-confidence C]
-    mojo-dllm tokenize --model M --prompt TEXT [--no-chat]
+    mojo-dllm tokenize --model M (--prompt TEXT | --prompt-file PATH) [--no-chat]
     mojo-dllm inspect  MODEL.gguf
     mojo-dllm logits   --model M --tokens 1,2,3 --rows 0,2 --out logits.f32 [--threads N] [--device cpu|gpu]
 """
@@ -74,6 +74,7 @@ def command_spec(command: String) raises -> CommandSpec:
             [
                 "model",
                 "prompt",
+                "prompt-file",
                 "max-tokens",
                 "steps",
                 "block-length",
@@ -92,11 +93,11 @@ def command_spec(command: String) raises -> CommandSpec:
                 "eb-confidence",
             ],
             boolean_flags(),
-            ["model", "prompt"],
+            ["model"],
         )
     if command == "tokenize":
         return CommandSpec(
-            ["model", "prompt"], ["no-chat"], ["model", "prompt"]
+            ["model", "prompt", "prompt-file"], ["no-chat"], ["model"]
         )
     if command == "inspect":
         return CommandSpec([], [], [], takes_path=True)
@@ -113,8 +114,8 @@ def command_usage(command: String) raises -> String:
     """The usage lines of one command, without a trailing newline."""
     if command == "run":
         return (
-            "  mojo-dllm run --model M --prompt TEXT [--max-tokens 128]"
-            " [--steps 128] [--block-length 32]\n"
+            "  mojo-dllm run --model M (--prompt TEXT | --prompt-file PATH)"
+            " [--max-tokens 128] [--steps 128] [--block-length 32]\n"
             + "                [--seed 42] [--temperature 0] [--threads N]"
             " [--device cpu|gpu]\n"
             + "                [--remasking low_confidence|random] [--threshold"
@@ -127,7 +128,10 @@ def command_usage(command: String) raises -> String:
             + "                [--eb-stability 1] [--eb-confidence 0.005]"
         )
     if command == "tokenize":
-        return "  mojo-dllm tokenize --model M --prompt TEXT [--no-chat]"
+        return (
+            "  mojo-dllm tokenize --model M (--prompt TEXT | --prompt-file"
+            " PATH) [--no-chat]"
+        )
     if command == "inspect":
         return "  mojo-dllm inspect MODEL.gguf"
     if command == "logits":
@@ -305,6 +309,21 @@ def check_args(a: Args, spec: CommandSpec) raises -> String:
                 + "'\n"
                 + usage_for(a.command)
             )
+    if a.command == "run" or a.command == "tokenize":
+        if a.has("prompt") and a.has("prompt-file"):
+            return (
+                "--prompt and --prompt-file cannot be combined for '"
+                + a.command
+                + "'"
+                + see
+            )
+        if not a.has("prompt") and not a.has("prompt-file"):
+            return (
+                "missing required flag --prompt for '"
+                + a.command
+                + "'\n"
+                + usage_for(a.command)
+            )
     if spec.takes_path and len(a.positional) == 0:
         return (
             "missing model path for '"
@@ -410,7 +429,34 @@ def encode_prompt(
     return tok.encode(chat_prompt(arch, text))
 
 
-def cmd_tokenize(a: Args) raises:
+def prompt_path(a: Args) raises -> String:
+    var path = a.get("prompt-file")
+    return "/dev/stdin" if path == "-" else path
+
+
+def read_prompt_file(a: Args) raises -> String:
+    var path = prompt_path(a)
+    try:
+        with open(path, "r") as f:
+            var text = f.read()
+            if text.endswith("\r\n"):
+                return String(text[byte = : text.byte_length() - 2])
+            if text.endswith("\n"):
+                return String(text[byte = : text.byte_length() - 1])
+            return text
+    except e:
+        raise Error(
+            "cannot read prompt file " + a.get("prompt-file") + ": " + String(e)
+        )
+
+
+def resolve_prompt(mut a: Args) raises:
+    if a.has("prompt-file"):
+        a.values["prompt"] = read_prompt_file(a)
+
+
+def cmd_tokenize(mut a: Args) raises:
+    resolve_prompt(a)
     var g = GGUFFile(a.get("model"))
     var tok = Tokenizer(g)
     var ids = encode_prompt(tok, g.architecture(), a)
@@ -459,7 +505,7 @@ def stop_json(res: GenResult) -> String:
     )
 
 
-def cmd_run(a: Args) raises:
+def cmd_run(mut a: Args) raises:
     var interval: Int
     try:
         interval = a.int_or("visual-interval", 1)
@@ -481,6 +527,7 @@ def cmd_run(a: Args) raises:
     cfg.full_logits = a.has("full-logits")
     cfg.dual_cache = a.has("dual-cache")
     cfg.threads = threads
+    resolve_prompt(a)
     cfg.eb_steps = a.int_or("eb-steps", cfg.eb_steps)
     cfg.eb_t_min = a.float_or("eb-t-min", cfg.eb_t_min)
     cfg.eb_t_max = a.float_or("eb-t-max", cfg.eb_t_max)
