@@ -2,8 +2,9 @@
 
     mojo-dllm run      --model M --prompt TEXT [--max-tokens N] [--steps N] [--block-length N]
                        [--seed N] [--temperature T] [--threads N] [--device cpu|gpu]
-                       [--remasking low_confidence|random] [--threshold P] [--dual-cache]
-                       [--no-chat] [--full-logits] [--no-early-stop] [--visual] [--visual-interval N] [--verbose]
+                       [--remasking S] [--threshold P] [--dual-cache]
+                       [--no-chat] [--full-logits] [--no-early-stop] [--no-suppress-mask]
+                       [--visual] [--visual-interval N] [--verbose]
                        [--dump-step-stats] [--json]
                        [--eb-steps N] [--eb-t-min T] [--eb-t-max T] [--eb-bound B]
                        [--eb-stability N] [--eb-confidence C]
@@ -119,10 +120,9 @@ def command_usage(command: String) raises -> String:
             " [--steps 128] [--block-length 32]\n"
             + "                [--seed 42] [--temperature 0] [--threads N]"
             " [--device cpu|gpu]\n"
-            + "                [--remasking low_confidence|random] [--threshold"
-            " P] [--dual-cache]\n"
+            + "                [--remasking S] [--threshold P] [--dual-cache]\n"
             + "                [--no-chat] [--full-logits] [--no-early-stop]"
-            " [--visual] [--visual-interval N] [--verbose]"
+            " [--no-suppress-mask] [--visual] [--visual-interval N] [--verbose]"
             " [--dump-step-stats] [--json]\n"
             + "                [--eb-steps 48] [--eb-t-min 0.4] [--eb-t-max"
             " 0.8] [--eb-bound 0.1]\n"
@@ -492,6 +492,7 @@ def cmd_run(a: Args) raises:
     cfg.threshold = a.float_or("threshold", 0.0)
     cfg.full_logits = a.has("full-logits")
     cfg.dual_cache = a.has("dual-cache")
+    cfg.suppress_mask = not a.has("no-suppress-mask")
     cfg.threads = threads
     cfg.eb_steps = a.int_or("eb-steps", cfg.eb_steps)
     cfg.eb_t_min = a.float_or("eb-t-min", cfg.eb_t_min)
@@ -937,6 +938,7 @@ def boolean_flags() -> List[String]:
         "json",
         "visual",
         "no-early-stop",
+        "no-suppress-mask",
         "dual-cache",
     ]
 
