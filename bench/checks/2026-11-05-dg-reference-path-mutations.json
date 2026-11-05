@@ -1,0 +1,619 @@
+{
+  "date": "2026-11-05",
+  "issue": 163,
+  "baseline_commit": "eab06852c40029231397acccde6689844e26ae69",
+  "scope": "Trace validation, axis alignment, Q8_K rounding, numeric diagnostic reports, softmax host inputs, and native CPU tool guards",
+  "initial": {
+    "mutants": 24,
+    "killed": 10,
+    "survived": 14,
+    "invalid": 0,
+    "controls": [
+      {
+        "position": "before",
+        "pytest_exit": 0,
+        "passed": 14,
+        "failed_tests": [],
+        "error_tests": [],
+        "skipped": 0
+      },
+      {
+        "position": "after",
+        "pytest_exit": 0,
+        "passed": 14,
+        "failed_tests": [],
+        "error_tests": [],
+        "skipped": 0
+      }
+    ]
+  },
+  "final": {
+    "killed": 31,
+    "survived": 0,
+    "invalid_attempts": 1,
+    "python_controls": [
+      {
+        "position": "before",
+        "pytest_exit": 0,
+        "passed": 25,
+        "failed_tests": [],
+        "error_tests": [],
+        "skipped": 0
+      },
+      {
+        "position": "after",
+        "pytest_exit": 0,
+        "passed": 25,
+        "failed_tests": [],
+        "error_tests": [],
+        "skipped": 0
+      }
+    ],
+    "native_controls": [
+      {
+        "position": "before",
+        "pytest_exit": 0,
+        "passed": 8,
+        "failed_tests": [],
+        "error_tests": [],
+        "skipped": 0
+      },
+      {
+        "position": "after",
+        "pytest_exit": 0,
+        "passed": 8,
+        "failed_tests": [],
+        "error_tests": [],
+        "skipped": 0
+      }
+    ]
+  },
+  "mutants": [
+    {
+      "id": "trace_duplicate_guard",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "if key in tensors:",
+        "after": "if False:"
+      },
+      "target": "tests/python/test_dg_traces.py::test_rejects_duplicate_names_in_one_phase",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_rejects_duplicate_names_in_one_phase"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "trace_size_guard",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "if a.size != int(np.prod(ne)):",
+        "after": "if False:"
+      },
+      "target": "tests/python/test_dg_traces.py::test_rejects_a_short_tensor",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_rejects_a_short_tensor"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "trace_finite_guard",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "if not np.isfinite(a).all():",
+        "after": "if False:"
+      },
+      "target": "tests/python/test_dg_traces.py::test_rejects_non_finite_tensor_values",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_rejects_non_finite_tensor_values"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "trace_empty_guard",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "if not tensors:",
+        "after": "if False:"
+      },
+      "target": "tests/python/test_dg_traces.py::test_rejects_an_empty_trace",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_rejects_an_empty_trace"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "trace_dimension_order",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "a.reshape(ne[::-1])",
+        "after": "a.reshape(ne)"
+      },
+      "target": "tests/python/test_dg_traces.py::test_load_preserves_logical_ggml_dimension_order",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_load_preserves_logical_ggml_dimension_order"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "decode_row_offset",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "start = 0 if phase == \"prefill\" else prompt",
+        "after": "start = 0"
+      },
+      "target": "tests/python/test_dg_traces.py::test_aligns_the_token_axis_of_a_head_tensor",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[decode-8]",
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[decode-9]",
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[decode-14]",
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[decode-16]"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "prefill_query_offset",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "start = 0 if phase == \"prefill\" else prompt",
+        "after": "start = 1 if phase == \"prefill\" else prompt"
+      },
+      "target": "tests/python/test_dg_traces.py::test_aligns_the_token_axis_of_a_head_tensor",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[prefill-8]",
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[prefill-9]",
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[prefill-14]",
+        "tests.python.test_dg_traces::test_aligns_the_token_axis_of_a_head_tensor[prefill-16]"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "prefill_dimension_guard",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "if phase == \"prefill\" and b.shape[axis] != prompt:",
+        "after": "if False:"
+      },
+      "target": "tests/python/test_dg_traces.py::test_rejects_a_prefill_dimension_that_is_not_the_prompt",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_rejects_a_prefill_dimension_that_is_not_the_prompt"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "decode_canvas_guard",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "(phase == \"decode\" and a.shape[axis] != prompt + b.shape[axis])",
+        "after": "False"
+      },
+      "target": "tests/python/test_dg_traces.py::test_rejects_a_wrong_canvas_length",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_rejects_a_wrong_canvas_length"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "attention_query_key_guard",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "if any(b.shape[i] != prompt for i in changed) or a.shape[changed[0]] != a.shape[changed[1]]:",
+        "after": "if False:"
+      },
+      "target": "tests/python/test_dg_traces.py::test_rejects_invalid_prefill_attention_axes",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_rejects_invalid_prefill_attention_axes[unified_shape0-cached_shape0]",
+        "tests.python.test_dg_traces::test_rejects_invalid_prefill_attention_axes[unified_shape1-cached_shape1]"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "attention_key_slice",
+      "suite": "python",
+      "source": "bench/compare_dg_traces.py",
+      "change": {
+        "before": "slice(0, prompt) if i in changed else slice(None)",
+        "after": "slice(0, prompt) if i == changed[0] else slice(None)"
+      },
+      "target": "tests/python/test_dg_traces.py::test_aligns_both_query_and_key_axes_of_prefill_attention",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_aligns_both_query_and_key_axes_of_prefill_attention"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "q8_rounding",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "np.rint(blocks * inverse)",
+        "after": "np.floor(blocks * inverse)"
+      },
+      "target": "tests/python/test_dg_traces.py::test_q8_k_reference_rounds_half_to_even_and_preserves_zero_rows",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_q8_k_reference_rounds_half_to_even_and_preserves_zero_rows"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "q8_scale_128",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "np.float32(-127)",
+        "after": "np.float32(-128)"
+      },
+      "target": "tests/python/test_dg_traces.py::test_q8_k_reference_rounds_half_to_even_and_preserves_zero_rows",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_q8_k_reference_rounds_half_to_even_and_preserves_zero_rows"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "q8_zero_block",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "nonzero = maximum != 0",
+        "after": "nonzero = np.ones_like(maximum, dtype=bool)"
+      },
+      "target": "tests/python/test_dg_traces.py::test_q8_k_reference_rounds_half_to_even_and_preserves_zero_rows",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_q8_k_reference_rounds_half_to_even_and_preserves_zero_rows"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "projection_skips_quantization",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "quantized = q8_k_reference(x)",
+        "after": "quantized = x.copy()"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_projection_reports_quantized_oracle_and_boundary_differences",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_projection_reports_quantized_oracle_and_boundary_differences"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "projection_drops_boundary_row",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "selected = sorted(set([0, p - 1, p, p + 1, t - 1]))",
+        "after": "selected = sorted(set([0, p, p + 1, t - 1]))"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_projection_reports_quantized_oracle_and_boundary_differences",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_projection_reports_quantized_oracle_and_boundary_differences"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "projection_reuses_unified_output",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "c = np.concatenate([cached[(\"prefill\", trace_name)][1].squeeze(),\n                            cached[(\"decode\", trace_name)][1].squeeze()])",
+        "after": "c = u.copy()"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_projection_reports_quantized_oracle_and_boundary_differences",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_projection_reports_quantized_oracle_and_boundary_differences"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "matmul_replay_forced_equal",
+      "suite": "python",
+      "source": "bench/check_dg_matmul.py",
+      "change": {
+        "before": "original_replay_bit_equal=bool(np.array_equal(replay.view(np.uint32), original.view(np.uint32)))",
+        "after": "original_replay_bit_equal=True"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_matmul_reports_replay_mismatch_and_honors_no_repack",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_matmul_reports_replay_mismatch_and_honors_no_repack"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "matmul_ignores_no_repack",
+      "suite": "python",
+      "source": "bench/check_dg_matmul.py",
+      "change": {
+        "before": "command.append(\"--no-repack\")",
+        "after": "pass"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_matmul_reports_replay_mismatch_and_honors_no_repack",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_matmul_reports_replay_mismatch_and_honors_no_repack"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "matmul_hides_differing_rows",
+      "suite": "python",
+      "source": "bench/check_dg_matmul.py",
+      "change": {
+        "before": "different = np.flatnonzero(np.any(both.view(np.uint32) != cached.view(np.uint32), axis=1)).tolist()",
+        "after": "different = []"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_matmul_reports_replay_mismatch_and_honors_no_repack",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_matmul_reports_replay_mismatch_and_honors_no_repack"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "softmax_oracle_mask_reversed",
+      "suite": "python",
+      "source": "bench/check_dg_softmax.py",
+      "change": {
+        "before": "causal = np.arange(p)[None, :] <= np.arange(p)[:, None]",
+        "after": "causal = np.arange(p)[None, :] >= np.arange(p)[:, None]"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_softmax_reports_f64_error_and_replay_mismatch",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_softmax_reports_f64_error_and_replay_mismatch"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "softmax_replay_forced_equal",
+      "suite": "python",
+      "source": "bench/check_dg_softmax.py",
+      "change": {
+        "before": "result[\"replay_bit_equal\"] = bool(np.array_equal(output.view(np.uint32), actual[keys].copy().view(np.uint32)))",
+        "after": "result[\"replay_bit_equal\"] = True"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_softmax_reports_f64_error_and_replay_mismatch",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_softmax_reports_f64_error_and_replay_mismatch"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "softmax_padding_unmasked",
+      "suite": "python",
+      "source": "bench/check_dg_softmax.py",
+      "change": {
+        "before": "mask[q, :q + 1] = 0",
+        "after": "mask[q, :] = 0"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_softmax_uploads_causal_mask_and_masked_padding",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_softmax_uploads_causal_mask_and_masked_padding"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "softmax_compute_error_ignored",
+      "suite": "python",
+      "source": "bench/check_dg_softmax.py",
+      "change": {
+        "before": "if api.ggml_backend_graph_compute(backend, graph) != 0:",
+        "after": "if False:"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_softmax_propagates_backend_compute_failure",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_softmax_propagates_backend_compute_failure"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "q8_shared_block_scale",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "nonzero = maximum != 0",
+        "after": "maximum = maximum.max(axis=1, keepdims=True)\n    nonzero = maximum != 0"
+      },
+      "target": "tests/python/test_dg_traces.py::test_q8_k_reference_scales_each_block_independently",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_traces::test_q8_k_reference_scales_each_block_independently"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "projection_weight_transpose",
+      "suite": "python",
+      "source": "bench/check_dg_projection.py",
+      "change": {
+        "before": "rounded = quantized.astype(np.float64) @ weight.T",
+        "after": "rounded = quantized.astype(np.float64) @ weight"
+      },
+      "target": "tests/python/test_dg_diagnostics.py::test_projection_reports_quantized_oracle_and_boundary_differences",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "tests.python.test_dg_diagnostics::test_projection_reports_quantized_oracle_and_boundary_differences"
+      ],
+      "error_tests": []
+    },
+    {
+      "id": "native_matmul_ignores_extra_bytes",
+      "suite": "native_cpu",
+      "source": "tools/ref/dg_matmul.cpp",
+      "change": {
+        "before": "std::fread(bytes.data(), 1, bytes.size(), file) == bytes.size() && std::fgetc(file) == EOF",
+        "after": "std::fread(bytes.data(), 1, bytes.size(), file) == bytes.size()"
+      },
+      "target": "::test_native_matmul_rejects_inexact_tensor_file",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "test_dg_native_diagnostics::test_native_matmul_rejects_inexact_tensor_file[extra-weight]",
+        "test_dg_native_diagnostics::test_native_matmul_rejects_inexact_tensor_file[extra-input]"
+      ],
+      "error_tests": [],
+      "compile_exit": 0
+    },
+    {
+      "id": "native_matmul_ignores_file_size",
+      "suite": "native_cpu",
+      "source": "tools/ref/dg_matmul.cpp",
+      "change": {
+        "before": "std::fread(bytes.data(), 1, bytes.size(), file) == bytes.size() && std::fgetc(file) == EOF",
+        "after": "(std::fread(bytes.data(), 1, bytes.size(), file), true)"
+      },
+      "target": null,
+      "result": "invalid",
+      "pytest_exit": null,
+      "failed_tests": [],
+      "error_tests": [],
+      "compile_exit": 1,
+      "reason": "compile_failure",
+      "target_requested": "tests/python/test_dg_native_diagnostics.py::test_native_matmul_rejects_inexact_tensor_file"
+    },
+    {
+      "id": "native_trace_unpaired_option",
+      "suite": "native_cpu",
+      "source": "tools/ref/dg_ref.cpp",
+      "change": {
+        "before": "if (opt.trace_only && !opt.trace_dir)",
+        "after": "if (false)"
+      },
+      "target": "::test_native_trace_only_requires_trace_dir",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "test_dg_native_diagnostics::test_native_trace_only_requires_trace_dir"
+      ],
+      "error_tests": [],
+      "compile_exit": 0
+    },
+    {
+      "id": "native_trace_reuses_directory",
+      "suite": "native_cpu",
+      "source": "tools/ref/dg_ref.cpp",
+      "change": {
+        "before": "if (!std::filesystem::create_directory(dir, ec))",
+        "after": "if (std::filesystem::create_directory(dir, ec) && false)"
+      },
+      "target": "::test_native_trace_directory_must_be_new",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "test_dg_native_diagnostics::test_native_trace_directory_must_be_new"
+      ],
+      "error_tests": [],
+      "compile_exit": 0
+    },
+    {
+      "id": "native_trace_accepts_empty_prefixes",
+      "suite": "native_cpu",
+      "source": "tools/ref/dg_ref.cpp",
+      "change": {
+        "before": "if (prefixes.empty())",
+        "after": "if (false)"
+      },
+      "target": "::test_native_trace_rejects_empty_prefixes",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "test_dg_native_diagnostics::test_native_trace_rejects_empty_prefixes"
+      ],
+      "error_tests": [],
+      "compile_exit": 0
+    },
+    {
+      "id": "native_matmul_ignores_file_size_retry",
+      "suite": "native_cpu",
+      "source": "tools/ref/dg_matmul.cpp",
+      "change": {
+        "before": "std::fread(bytes.data(), 1, bytes.size(), file) == bytes.size() && std::fgetc(file) == EOF",
+        "after": "std::fread(bytes.data(), 1, bytes.size(), file) <= bytes.size()"
+      },
+      "target": "::test_native_matmul_rejects_inexact_tensor_file",
+      "result": "killed",
+      "pytest_exit": 1,
+      "failed_tests": [
+        "test_dg_native_diagnostics::test_native_matmul_rejects_inexact_tensor_file[short-weight]",
+        "test_dg_native_diagnostics::test_native_matmul_rejects_inexact_tensor_file[short-input]",
+        "test_dg_native_diagnostics::test_native_matmul_rejects_inexact_tensor_file[extra-weight]",
+        "test_dg_native_diagnostics::test_native_matmul_rejects_inexact_tensor_file[extra-input]"
+      ],
+      "error_tests": [],
+      "compile_exit": 0,
+      "retry_of": "native_matmul_ignores_file_size"
+    }
+  ],
+  "validation_boundaries": {
+    "python_reports": "Literal small tensors and controlled child-process/FFI boundaries",
+    "native": "Real compiled pinned CPU-only ggml/libllama executables, 4x8 f32 matrix and malformed-file/option cases",
+    "real_model_loaded": false,
+    "gpu_workloads": false,
+    "compiler_failure_handling": "The ignored-fread-return attempt failed -Werror and is retained as invalid. Its compilable <=-length retry was killed by named tests."
+  },
+  "reproduce": {
+    "python": "python -m pytest -q tests/python/test_dg_traces.py tests/python/test_dg_diagnostics.py tests/python/test_parity_dgemma.py",
+    "native": "DG_REF=/absolute/path/dg_ref DG_MATMUL=/absolute/path/dg_matmul python -m pytest -q tests/python/test_dg_native_diagnostics.py"
+  },
+  "detailed_logs": {
+    "local": "phase3/issue163-mutations/{initial,final}/",
+    "native": "phase3/issue163-native/"
+  },
+  "local_python": "3.12.14"
+}

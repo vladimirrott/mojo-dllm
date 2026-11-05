@@ -7,6 +7,7 @@
 //
 //   dg_ref logits MODEL PROMPT_CSV CANVAS_CSV OUT.f32 THREADS
 //                 [--cached] [--prev PREV.f32 --prev-temp-inv F]
+//                 [--trace-dir NEW_DIR [--trace-only PREFIX_CSV]] [--no-repack]
 //       One denoising step over a fixed prompt and canvas. Writes the canvas
 //       rows' logits as f32 [canvas_length, n_vocab], row-major. The prompt rows
 //       are not written: only the canvas is sampled from.
@@ -21,6 +22,13 @@
 //                   the gate open (use_sc = 1) and temp_inv = 1 / the temperature
 //                   of the step that produced PREV. Without it the zero
 //                   self-conditioning path runs (what a block's first step is).
+//         --trace-dir writes selected f32 graph nodes and a manifest.jsonl, with
+//                   separate unified, prefill and decode phases. The default
+//                   prefixes are inp_region,l_out. --trace-only selects others
+//                   by tensor-name prefix, for example Qcur-0,Kcur-0,l_out-0.
+//                   NEW_DIR must not exist. Tracing synchronizes graph nodes.
+//         --no-repack disables extra CPU weight buffer types for a diagnostic
+//                   comparison against the ordinary quantized-weight kernels.
 //
 // The sampler is not reimplemented here: unlike LLaDA's, DiffusionGemma's loop
 // (random canvas, entropy-bounded acceptance, re-noising) is the #65 work, and
@@ -31,12 +39,17 @@
 // branch's exactness checks use, and the cached path keeps its K/V store in f32.
 
 #include "llama.h"
+#include "ggml-backend.h"
 
 #include <cmath>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -71,10 +84,11 @@ static std::vector<float> read_f32(const char * path, size_t expect) {
     return v;
 }
 
-static llama_model * load(const char * path, bool vocab_only) {
+static llama_model * load(const char * path, bool vocab_only, bool repack = true) {
     llama_backend_init();
     llama_model_params mp = llama_model_default_params();
     mp.vocab_only         = vocab_only;
+    mp.use_extra_bufts    = repack;
     llama_model * model   = llama_model_load_from_file(path, mp);
     if (!model) {
         std::fprintf(stderr, "dg_ref: failed to load %s\n", path);
@@ -121,6 +135,107 @@ struct Options {
     const char * prev          = nullptr;
     bool        has_temp_inv   = false;
     float       prev_temp_inv  = 1.0f;
+    const char * trace_dir     = nullptr;
+    const char * trace_only    = nullptr;
+    bool        no_repack      = false;
+};
+
+struct Trace {
+    std::filesystem::path dir;
+    std::ofstream manifest;
+    std::vector<std::string> prefixes;
+    std::string phase = "unified";
+    int serial = 0;
+    bool failed = false;
+
+    bool open(const char * path, const char * only) {
+        dir = path;
+        std::error_code ec;
+        if (!std::filesystem::create_directory(dir, ec)) {
+            std::fprintf(stderr, "dg_ref: trace directory must be new: %s (%s)\n", path,
+                         ec ? ec.message().c_str() : "already exists");
+            return false;
+        }
+        manifest.open(dir / "manifest.jsonl");
+        if (!manifest) {
+            std::fprintf(stderr, "dg_ref: cannot create trace manifest in %s\n", path);
+            return false;
+        }
+        std::stringstream csv(only ? only : "inp_region,l_out");
+        std::string prefix;
+        while (std::getline(csv, prefix, ',')) {
+            if (!prefix.empty()) {
+                prefixes.push_back(prefix);
+            }
+        }
+        if (prefixes.empty()) {
+            std::fprintf(stderr, "dg_ref: --trace-only needs a tensor-name prefix\n");
+            return false;
+        }
+        return true;
+    }
+
+    static bool observe(ggml_tensor * t, bool ask, void * user) {
+        auto & trace = *static_cast<Trace *>(user);
+        if (ask) {
+            if (t->type != GGML_TYPE_F32) {
+                return false;
+            }
+            for (const auto & prefix : trace.prefixes) {
+                if (std::strncmp(t->name, prefix.c_str(), prefix.size()) == 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        std::string safe = t->name;
+        for (char & ch : safe) {
+            if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' || ch == '.')) {
+                ch = '_';
+            }
+        }
+        const std::string file = trace.phase + "-" + std::to_string(trace.serial++) + "-" + safe + ".f32";
+        const auto path = trace.dir / file;
+        std::vector<char> raw(ggml_nbytes(t));
+        ggml_backend_tensor_get(t, raw.data(), 0, raw.size());
+        std::ofstream output(path, std::ios::binary);
+        // Write logical ggml order even when a node is a strided view.
+        for (int64_t i3 = 0; i3 < t->ne[3]; ++i3) {
+            for (int64_t i2 = 0; i2 < t->ne[2]; ++i2) {
+                for (int64_t i1 = 0; i1 < t->ne[1]; ++i1) {
+                    const size_t off = i3 * t->nb[3] + i2 * t->nb[2] + i1 * t->nb[1];
+                    if (t->nb[0] == sizeof(float)) {
+                        output.write(raw.data() + off, t->ne[0] * sizeof(float));
+                    } else {
+                        for (int64_t i0 = 0; i0 < t->ne[0]; ++i0) {
+                            output.write(raw.data() + off + i0 * t->nb[0], sizeof(float));
+                        }
+                    }
+                }
+            }
+        }
+        output.close();
+        if (!output) {
+            std::fprintf(stderr, "dg_ref: failed to write trace tensor %s\n", path.string().c_str());
+            trace.failed = true;
+            return false;
+        }
+        trace.manifest << "{\"phase\":" << std::quoted(trace.phase)
+                       << ",\"name\":" << std::quoted(std::string(t->name))
+                       << ",\"op\":" << std::quoted(std::string(ggml_op_name(t->op)))
+                       << ",\"file\":" << std::quoted(file) << ",\"ne\":[";
+        for (int d = 0; d < 4; ++d) {
+            trace.manifest << (d ? "," : "") << t->ne[d];
+        }
+        trace.manifest << "],\"nb\":[";
+        for (int d = 0; d < 4; ++d) {
+            trace.manifest << (d ? "," : "") << t->nb[d];
+        }
+        trace.manifest << "]}\n";
+        trace.manifest.flush();
+        trace.failed = !trace.manifest;
+        return !trace.failed;
+    }
 };
 
 static llama_batch make_batch(const std::vector<int> & ids, int pos0, const std::vector<char> & want_logits) {
@@ -138,7 +253,7 @@ static llama_batch make_batch(const std::vector<int> & ids, int pos0, const std:
 
 static int cmd_logits(int argc, char ** argv) {
     const char * usage =
-        "usage: dg_ref logits MODEL PROMPT_CSV CANVAS_CSV OUT.f32 THREADS [--cached] [--prev PREV.f32 --prev-temp-inv F]\n";
+        "usage: dg_ref logits MODEL PROMPT_CSV CANVAS_CSV OUT.f32 THREADS [--cached] [--prev PREV.f32 --prev-temp-inv F] [--trace-dir NEW_DIR [--trace-only PREFIX_CSV]] [--no-repack]\n";
     if (argc < 7) {
         std::fputs(usage, stderr);
         return 1;
@@ -147,11 +262,17 @@ static int cmd_logits(int argc, char ** argv) {
     for (int i = 7; i < argc; i++) {
         if (!std::strcmp(argv[i], "--cached")) {
             opt.cached = true;
+        } else if (!std::strcmp(argv[i], "--no-repack")) {
+            opt.no_repack = true;
         } else if (!std::strcmp(argv[i], "--prev") && i + 1 < argc) {
             opt.prev = argv[++i];
         } else if (!std::strcmp(argv[i], "--prev-temp-inv") && i + 1 < argc) {
             opt.prev_temp_inv = (float) std::atof(argv[++i]);
             opt.has_temp_inv  = true;
+        } else if (!std::strcmp(argv[i], "--trace-dir") && i + 1 < argc) {
+            opt.trace_dir = argv[++i];
+        } else if (!std::strcmp(argv[i], "--trace-only") && i + 1 < argc) {
+            opt.trace_only = argv[++i];
         } else {
             std::fprintf(stderr, "dg_ref: unknown argument %s\n%s", argv[i], usage);
             return 1;
@@ -165,6 +286,14 @@ static int cmd_logits(int argc, char ** argv) {
         std::fprintf(stderr, "dg_ref: --prev-temp-inv must be a positive number\n");
         return 1;
     }
+    if (opt.trace_only && !opt.trace_dir) {
+        std::fprintf(stderr, "dg_ref: --trace-only requires --trace-dir\n");
+        return 1;
+    }
+    Trace trace;
+    if (opt.trace_dir && !trace.open(opt.trace_dir, opt.trace_only)) {
+        return 2;
+    }
 
     const std::vector<int> prompt = parse_csv(argv[3]);
     const std::vector<int> canvas = parse_csv(argv[4]);
@@ -177,7 +306,7 @@ static int cmd_logits(int argc, char ** argv) {
         return 1;
     }
 
-    llama_model *       model   = load(argv[2], false);
+    llama_model *       model   = load(argv[2], false, !opt.no_repack);
     const llama_vocab * vocab   = llama_model_get_vocab(model);
     const int           n_vocab = llama_vocab_n_tokens(vocab);
 
@@ -215,6 +344,10 @@ static int cmd_logits(int argc, char ** argv) {
     cp.n_threads_batch      = threads;
     cp.no_perf              = true;
     cp.flash_attn_type      = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    if (opt.trace_dir) {
+        cp.cb_eval           = Trace::observe;
+        cp.cb_eval_user_data = &trace;
+    }
     llama_context * ctx     = llama_init_from_model(model, cp);
     if (!ctx) {
         std::fprintf(stderr, "dg_ref: failed to create the context\n");
@@ -256,6 +389,7 @@ static int cmd_logits(int argc, char ** argv) {
         want[P - 1] = 1;
         llama_diffusion_set_sc(model, nullptr, 0.0f, 1.0f, false);
         llama_diffusion_set_phase(model, /*PKV_PREFILL=*/1, P, /*off=*/0);
+        trace.phase = "prefill";
         llama_batch pre = make_batch(prompt, 0, want);
         int rc = llama_decode(ctx, pre);
         llama_batch_free(pre);
@@ -265,6 +399,7 @@ static int cmd_logits(int argc, char ** argv) {
         }
         // DECODE: the canvas at positions P.., against the stored prompt K/V.
         llama_diffusion_set_phase(model, /*PKV_DECODE=*/2, P, 0);
+        trace.phase = "decode";
         set_sc();
         llama_batch dec = make_batch(canvas, P, std::vector<char>(C, 1));
         rc              = llama_decode(ctx, dec);
@@ -276,6 +411,10 @@ static int cmd_logits(int argc, char ** argv) {
         }
     }
     llama_diffusion_set_sc(model, nullptr, 0.0f, 1.0f, false);
+    if (trace.failed) {
+        std::fprintf(stderr, "dg_ref: trace failed\n");
+        return 3;
+    }
 
     // Write to a side file and rename, so an interrupted run never leaves a file that reads as a result.
     const std::string part = std::string(out_path) + ".part";
