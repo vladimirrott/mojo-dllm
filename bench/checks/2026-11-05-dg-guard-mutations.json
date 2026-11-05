@@ -1,0 +1,1042 @@
+{
+  "schema_version": 1,
+  "experiment": "diffusion-gemma-critical-guard-mutations",
+  "date": "2026-11-05T12:20:21.636896+00:00",
+  "production_base_commit": "44773ed7b5a4e56100037a129997ea13459ea061",
+  "environment": {
+    "python": "3.12.14",
+    "pytest": "9.1.1",
+    "numpy": "2.3.5",
+    "platform": "Windows"
+  },
+  "method": "One guard mutation per independent source snapshot; fresh pytest process with bytecode and cache disabled",
+  "scope": "CPU fixture tests for candidate execution, receipt identity, calibration, SC input sharing and numerical bounds",
+  "pristine_controls": [
+    {
+      "round": "initial",
+      "phase": "before",
+      "passed": 49,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "round": "initial",
+      "phase": "after",
+      "passed": 49,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "round": "verified",
+      "phase": "before",
+      "passed": 110,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "round": "verified",
+      "phase": "after",
+      "passed": 110,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "round": "isolated",
+      "phase": "before",
+      "passed": 110,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "round": "isolated",
+      "phase": "after",
+      "passed": 110,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "round": "shorter-path",
+      "phase": "before",
+      "passed": 110,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "round": "shorter-path",
+      "phase": "after",
+      "passed": 110,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "rounds": {
+    "initial": {
+      "total": 32,
+      "killed": 7,
+      "survived": 25,
+      "invalid": 0
+    },
+    "verified": {
+      "total": 42,
+      "killed": 39,
+      "survived": 2,
+      "invalid": 1
+    },
+    "isolated": {
+      "total": 3,
+      "killed": 3,
+      "survived": 0,
+      "invalid": 0
+    },
+    "shorter-path": {
+      "total": 1,
+      "killed": 1,
+      "survived": 0,
+      "invalid": 0
+    }
+  },
+  "verification": {
+    "total": 42,
+    "killed": 42,
+    "survived": 0,
+    "invalid": 0
+  },
+  "invalid_result_policy": "Compilation, collection and environment errors are invalid and excluded from killed counts",
+  "isolation_note": "Model path and size fixtures preserve mtime to exercise each guard clause independently",
+  "mutations": [
+    {
+      "id": "candidate-model-source",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "if (str(model) != meta[\"model_path\"] or stat.st_size != meta[\"model_bytes\"]\n            or stat.st_mtime_ns != meta[\"model_mtime_ns\"]):",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Execute weights other than the reference source model",
+      "result": "killed",
+      "verification_round": "isolated",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_model_must_match_reference_source[path]",
+        "tests/python/test_dg_candidate.py::test_candidate_model_must_match_reference_source[size]",
+        "tests/python/test_dg_candidate.py::test_candidate_model_must_match_reference_source[mtime]"
+      ],
+      "tests": {
+        "passed": 25,
+        "failed": 3,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "candidate-variant",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "if variant not in parity.DG_VARIANTS:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Execute an unsupported forward variant",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_rejects_unknown_variant_before_execution"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "candidate-input-template",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "if any(key not in joined for key in required):",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Allow a command to omit model, canvas, variant, output or SC inputs",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[model]",
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[out]",
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[variant]",
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[case_json]",
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[prompt_csv]",
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[canvas_csv]",
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[prev]",
+        "tests/python/test_dg_candidate.py::test_candidate_command_must_consume_every_required_input[prev_temp_inv]"
+      ],
+      "tests": {
+        "passed": 20,
+        "failed": 8,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "candidate-build-revision",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "if not candidate_revision.strip():",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Record an empty build revision",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_requires_nonempty_build_revision"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "candidate-output-size",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "if not output.is_file() or output.stat().st_size != expected_bytes:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Write a receipt for a truncated canvas",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_does_not_issue_receipt_after_incomplete_or_changed_execution[truncated-must contain]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "candidate-model-changed-during-run",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "if after.st_size != stat.st_size or after.st_mtime_ns != stat.st_mtime_ns:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Write a receipt after the model changes during execution",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_does_not_issue_receipt_after_incomplete_or_changed_execution[model-model changed]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "candidate-prev-changed-during-run",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "if inputs != parity.dg_receipt_inputs(case_dir, meta, variant):",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Write a receipt after the shared previous logits change during execution",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_does_not_issue_receipt_after_incomplete_or_changed_execution[previous-previous logits changed]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "receipt-execution-producer",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "receipt.get(\"producer\") != \"bench/dg_candidate.py/v1\" or ",
+        "after": ""
+      },
+      "faulty_behavior": "Accept a receipt with invalid or missing execution producer",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_requires_completed_identified_execution[producer-other]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "receipt-execution-exit-status",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "execution.get(\"exit_status\") != 0",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept a receipt with invalid or missing execution exit-status",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_requires_completed_identified_execution[exit_status-7]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "receipt-execution-argv",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "not execution.get(\"argv\")",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept a receipt with invalid or missing execution argv",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_requires_completed_identified_execution[argv-value2]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "receipt-execution-executable",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "not execution.get(\"executable\")",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept a receipt with invalid or missing execution executable",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_requires_completed_identified_execution[executable-value3]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "receipt-execution-revision",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "not execution.get(\"candidate_revision\")",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept a receipt with invalid or missing execution revision",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_requires_completed_identified_execution[candidate_revision-]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "receipt-input-identity",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if receipt.get(\"inputs\") != dg_receipt_inputs(case_dir, meta, variant):",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Accept changed variant, tokens, model, previous logits or temperature",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_binds_previous_temperature",
+        "tests/python/test_dg_candidate.py::test_changed_case_inputs_are_refused_after_export",
+        "tests/python/test_dg_candidate.py::test_wrong_variant_or_replaced_shared_previous_logits_is_refused"
+      ],
+      "tests": {
+        "passed": 25,
+        "failed": 3,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "killed"
+    },
+    {
+      "id": "receipt-output-identity",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if identity[\"bytes\"] != expected_bytes or receipt.get(\"output\") != identity:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Accept a replaced candidate output",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_rejects_truncation_even_with_matching_output_identity",
+        "tests/python/test_dg_candidate.py::test_executed_identical_output_has_a_valid_receipt_and_replaced_output_fails"
+      ],
+      "tests": {
+        "passed": 26,
+        "failed": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "killed"
+    },
+    {
+      "id": "receipt-output-expected-size",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "identity[\"bytes\"] != expected_bytes or ",
+        "after": ""
+      },
+      "faulty_behavior": "Accept two consistently truncated dumps and a matching receipt",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_rejects_truncation_even_with_matching_output_identity"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "receipt-sc-prev-content",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "sha256=_sha256(path),",
+        "after": "sha256=\"ignored\","
+      },
+      "faulty_behavior": "Accept a same-length replacement of the shared SC previous logits",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_does_not_issue_receipt_after_incomplete_or_changed_execution[previous-previous logits changed]",
+        "tests/python/test_dg_candidate.py::test_wrong_variant_or_replaced_shared_previous_logits_is_refused"
+      ],
+      "tests": {
+        "passed": 26,
+        "failed": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "killed"
+    },
+    {
+      "id": "receipt-sc-temperature",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "temperature_inverse=meta[\"prev_temp_inv\"]",
+        "after": "temperature_inverse=1.0"
+      },
+      "faulty_behavior": "Bind every previous-step temperature to a constant",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_receipt_binds_previous_temperature"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "comparison-shape",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if a.size == 0 or a.shape != b.shape:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Compare mismatched reference and candidate matrices",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_real_comparator_accepts_zero_spread_identical_executed_candidates"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "calibration-input-noise",
+      "source": "bench/dg_sensitivity.py",
+      "change": {
+        "before": "m[\"state\"] == state and m[\"same_inputs\"]",
+        "after": "m[\"state\"] == state"
+      },
+      "faulty_behavior": "Let changed previous-step inputs enlarge the implementation envelope",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_sensitivity.py::test_input_perturbations_do_not_set_the_implementation_bound"
+      ],
+      "tests": {
+        "passed": 19,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "killed"
+    },
+    {
+      "id": "calibration-noise-flag",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "r[\"same_inputs\"] and not r[\"expected_rejected\"]",
+        "after": "not r[\"expected_rejected\"]"
+      },
+      "faulty_behavior": "Let a changed-input cache experiment enlarge the per-prompt bound",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_dg_reference_bound_keeps_prompt_and_conditioning_states_separate"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "calibration-mutant-flag",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "r[\"same_inputs\"] and not r[\"expected_rejected\"]",
+        "after": "r[\"same_inputs\"]"
+      },
+      "faulty_behavior": "Let an expected-rejected cache experiment enlarge the per-prompt bound",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_dg_reference_bound_keeps_prompt_and_conditioning_states_separate"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "mutant-original-previous",
+      "source": "bench/dg_sensitivity.py",
+      "change": {
+        "before": "if pathlib.Path(mutant.get(\"prev_file\", \"\")).resolve() != previous.resolve():",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Analyze a mutant fed by its own previous logits",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_sensitivity.py::test_mutant_with_its_own_previous_logits_is_refused",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[metadata-check]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[metadata-sensitivity_report]"
+      ],
+      "tests": {
+        "passed": 17,
+        "failed": 3,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "killed"
+    },
+    {
+      "id": "mutant-executed-previous",
+      "source": "bench/dg_sensitivity.py",
+      "change": {
+        "before": "pathlib.Path(command[command.index(\"--prev\") + 1]).resolve() != previous.resolve()",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept an execution command reading the mutant previous logits",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-previous-check]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-previous-sensitivity_report]"
+      ],
+      "tests": {
+        "passed": 18,
+        "failed": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "mutant-executed-temperature",
+      "source": "bench/dg_sensitivity.py",
+      "change": {
+        "before": "float(command[command.index(\"--prev-temp-inv\") + 1]) != original[\"prev_temp_inv\"]",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept an execution command using a changed SC temperature",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-temperature-check]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-temperature-sensitivity_report]"
+      ],
+      "tests": {
+        "passed": 18,
+        "failed": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "check-original-previous",
+      "source": "bench/check_dg_bound.py",
+      "change": {
+        "before": "            sensitivity.require_mutant_inputs(meta, dict(dropped[name][0], case_directory=str(dropped[name][1].parent)),\n                                              name, ref_path)",
+        "after": "            pass"
+      },
+      "faulty_behavior": "Skip original-previous validation in the check entry point",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[metadata-check]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-previous-check]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-temperature-check]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[missing-receipt-check]"
+      ],
+      "tests": {
+        "passed": 16,
+        "failed": 4,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "analyze-original-previous",
+      "source": "bench/check_dg_bound.py",
+      "change": {
+        "before": "        sensitivity.require_mutant_inputs(meta, dict(dropped[name][0], case_directory=str(dropped[name][1].parent)),\n                                          name, unified)",
+        "after": "        pass"
+      },
+      "faulty_behavior": "Skip original-previous validation in the analyze entry point",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[metadata-sensitivity_report]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-previous-sensitivity_report]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[executed-temperature-sensitivity_report]",
+        "tests/python/test_dg_sensitivity.py::test_bound_entrypoints_refuse_mutant_previous_or_temperature[missing-receipt-sensitivity_report]"
+      ],
+      "tests": {
+        "passed": 16,
+        "failed": 4,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "sampling-temperature",
+      "source": "bench/dg_sensitivity.py",
+      "change": {
+        "before": "if not np.isfinite(temperature) or temperature <= 0:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Sample with zero, negative or non-finite temperature",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_invalid_temperature[0.0]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_invalid_temperature[-0.8]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_invalid_temperature[nan]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_invalid_temperature[inf]"
+      ],
+      "tests": {
+        "passed": 19,
+        "failed": 4,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "sampling-shape",
+      "source": "bench/dg_sensitivity.py",
+      "change": {
+        "before": "if candidate.shape != reference.shape or candidate.ndim != 2 or not candidate.size:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Silently zip matrices with different numbers of rows",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_incompatible_or_empty_matrices[candidate0]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_incompatible_or_empty_matrices[candidate1]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_incompatible_or_empty_matrices[candidate2]"
+      ],
+      "tests": {
+        "passed": 20,
+        "failed": 3,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "sampling-finiteness",
+      "source": "bench/dg_sensitivity.py",
+      "change": {
+        "before": "if not np.isfinite(x).all() or not np.isfinite(y).all():",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Publish distribution distances for non-finite logits",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_nonfinite_logits[nan-candidate]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_nonfinite_logits[nan-reference]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_nonfinite_logits[inf-candidate]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_nonfinite_logits[inf-reference]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_nonfinite_logits[-inf-candidate]",
+        "tests/python/test_dg_numeric.py::test_distribution_distance_refuses_nonfinite_logits[-inf-reference]"
+      ],
+      "tests": {
+        "passed": 17,
+        "failed": 6,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "softcap-boundary",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if max_abs_logit > cap:",
+        "after": "if max_abs_logit >= cap:"
+      },
+      "faulty_behavior": "Reject finite logits exactly on the allowed soft-cap boundary",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_softcap_invariant_catches_either_sign_and_non_finite_logits"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "killed"
+    },
+    {
+      "id": "softcap-finiteness",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if not math.isfinite(max_abs_logit) or not math.isfinite(cap) or cap <= 0:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Accept a non-finite soft-cap check input",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_softcap_invariant_catches_either_sign_and_non_finite_logits",
+        "tests/python/test_parity_dgemma.py::test_softcap_invariant_refuses_invalid_model_cap_or_logits[inf-30.0]",
+        "tests/python/test_parity_dgemma.py::test_softcap_invariant_refuses_invalid_model_cap_or_logits[30.0-nan]",
+        "tests/python/test_parity_dgemma.py::test_softcap_invariant_refuses_invalid_model_cap_or_logits[30.0-inf]",
+        "tests/python/test_parity_dgemma.py::test_softcap_invariant_refuses_invalid_model_cap_or_logits[1.0-0.0]",
+        "tests/python/test_parity_dgemma.py::test_softcap_invariant_refuses_invalid_model_cap_or_logits[1.0--30.0]"
+      ],
+      "tests": {
+        "passed": 28,
+        "failed": 6,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "killed"
+    },
+    {
+      "id": "uncap-finiteness",
+      "source": "bench/check_dg_bound.py",
+      "change": {
+        "before": "if not np.isfinite(cap) or cap <= 0 or not np.isfinite(values).all():",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Invert a non-finite logit or invalid cap",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_numeric.py::test_softcap_inversion_refuses_invalid_cap[0.0]",
+        "tests/python/test_dg_numeric.py::test_softcap_inversion_refuses_invalid_cap[-30.0]",
+        "tests/python/test_dg_numeric.py::test_softcap_inversion_refuses_invalid_cap[nan]",
+        "tests/python/test_dg_numeric.py::test_softcap_inversion_refuses_invalid_cap[inf]",
+        "tests/python/test_dg_numeric.py::test_softcap_inversion_refuses_nonfinite_logits[nan]",
+        "tests/python/test_dg_numeric.py::test_softcap_inversion_refuses_nonfinite_logits[inf]",
+        "tests/python/test_dg_numeric.py::test_softcap_inversion_refuses_nonfinite_logits[-inf]"
+      ],
+      "tests": {
+        "passed": 16,
+        "failed": 7,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "survived"
+    },
+    {
+      "id": "candidate-model-path-clause",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "str(model) != meta[\"model_path\"]",
+        "after": "False"
+      },
+      "faulty_behavior": "Ignore the candidate source model path mismatch",
+      "result": "killed",
+      "verification_round": "isolated",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_model_must_match_reference_source[path]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "candidate-model-size-clause",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "stat.st_size != meta[\"model_bytes\"]",
+        "after": "False"
+      },
+      "faulty_behavior": "Ignore the candidate source model size mismatch",
+      "result": "killed",
+      "verification_round": "isolated",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_model_must_match_reference_source[size]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "candidate-model-mtime-clause",
+      "source": "bench/dg_candidate.py",
+      "change": {
+        "before": "stat.st_mtime_ns != meta[\"model_mtime_ns\"]",
+        "after": "False"
+      },
+      "faulty_behavior": "Ignore the candidate source model mtime mismatch",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_candidate.py::test_candidate_model_must_match_reference_source[mtime]"
+      ],
+      "tests": {
+        "passed": 27,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "case-input-identity",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if meta.get(key) != expected[key]:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Apply a measured bound to changed prompt, canvas or SC temperature",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_fixed_input_bound_refuses_changed_model_canvas_and_sc_temperature"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "case-model-and-reference-version",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if meta.get(key) != bound[key]:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Apply a measured bound to a different model name or reference revision",
+      "result": "killed",
+      "verification_round": "shorter-path",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_fixed_input_bound_refuses_changed_model_canvas_and_sc_temperature"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "case-model-artifact",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if \"model_identity\" in bound and dg_model_identity(meta) != bound[\"model_identity\"]:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Treat same-named but different weights as the measured artifact",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_same_named_model_with_a_different_identity_is_refused"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "case-softcap",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "if float(meta[\"final_logit_softcapping\"]) != float(expected[\"final_logit_softcapping\"]):",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Apply a bound collected with a different model soft-cap",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_fixed_input_bound_refuses_changed_model_canvas_and_sc_temperature"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "provenance-model-size",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "source.get(\"verified_bytes\") != meta[\"model_bytes\"]",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept download provenance for a different model byte count",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_model_provenance_must_match_model_name_and_size[verified_bytes-18]"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "provenance-model-name",
+      "source": "bench/parity.py",
+      "change": {
+        "before": "source.get(\"filename\") != meta[\"model\"]",
+        "after": "False"
+      },
+      "faulty_behavior": "Accept download provenance for a different model filename",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_parity_dgemma.py::test_model_provenance_must_match_model_name_and_size[filename-different.gguf]"
+      ],
+      "tests": {
+        "passed": 33,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    },
+    {
+      "id": "check-shape",
+      "source": "bench/check_dg_bound.py",
+      "change": {
+        "before": "if not candidate.size or candidate.shape != ref.shape:",
+        "after": "if False:"
+      },
+      "faulty_behavior": "Evaluate a dropped-scale output with extra canvas rows",
+      "result": "killed",
+      "verification_round": "verified",
+      "failing_tests": [
+        "tests/python/test_dg_sensitivity.py::test_bound_check_refuses_a_mutant_with_extra_canvas_rows"
+      ],
+      "tests": {
+        "passed": 19,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "initial_result": "added in verification round"
+    }
+  ]
+}

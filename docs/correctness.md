@@ -288,36 +288,103 @@ command line.
 
 The model file is 16.81 GB and mojo-dllm keeps its own repacked copy beside the
 mapping the reference holds, so the two never run together. `bench/parity.py`
-runs them in turns and compares saved files:
+runs them in turns and compares saved files.
 
 ```bash
 scripts/build_dg_ref.sh
 uv run --only-group fixtures python bench/parity.py --arch diffusion-gemma --phase ref \
-    --model models/diffusiongemma-26B-A4B-it-Q4_K_M.gguf --llama-src "$DG_LLAMA_SRC"
-# mojo-dllm writes build/dg-parity/<model>/caseN/<variant>.mojo.f32 (the forward pass is #64)
+    --model models/diffusiongemma-26B-A4B-it-Q4_K_M.gguf --llama-src "$DG_LLAMA_SRC" \
+    --model-provenance model-provenance.json
+# Export each candidate through bench/dg_candidate.py (the runtime forward pass is #64).
 uv run --only-group fixtures python bench/parity.py --arch diffusion-gemma --phase compare \
     --model models/diffusiongemma-26B-A4B-it-Q4_K_M.gguf
 ```
 
-The comparison stops with a message while any mojo-dllm file is missing, and
-refuses a file that is byte-identical to the reference's. It writes evidence to
-`bench/parity/` only when every variant is no worse than the worst case of the
-LLaDA comparison in `bench/parity/2026-10-03-llada.json`, on each of minimum
-cosine, argmax agreement, top-5 overlap and maximum relative RMS. The bound is
-read from that file, not typed. A fifth metric holds the largest logit of every
-row to the same relative error as LLaDA's rows reach: the final soft-cap pins
-that logit near 30, so the first four cannot see the cap removed.
-`bench/check_dg_bound.py` shows what the bound rejects.
+The acceptance rule is `dg-fixed-input-v1`, a regression protocol for the four
+recorded prompt/canvas pairs, reference commit, GGUF identity and self-conditioning
+temperature. It derives a separate bound for each prompt and each SC state from
+the reference's cached/unified comparison **in both directions**. The five metrics
+are minimum cosine, argmax fraction, mean top-5 overlap, maximum relative RMS,
+and maximum relative error of the largest logit. The lower-bound metrics take
+the smaller observed value and the error metrics take the larger. Calibration
+uses the original reference controls with unit scale and zero margin. Every runtime variant must
+meet its case/state bound, and every logit must satisfy the model's absolute
+soft-cap of 30. The raw calibration records are
+`bench/checks/2026-11-05-dg-sensitivity.json`; the Python code derives its numbers
+from those controls each time.
 
-Each case records how far the reference lies from itself: the prompt K/V path
-against the unified pass, and the unified pass again with the previous-step
-logits changed by one part in a million. On the two LLaDA prompts with a random
-canvas those distances exceed the LLaDA bound (the one-in-a-million change moved
-the output by a median relative RMS of 0.18 to 0.26). No LLaDA spread was
-measured for comparison. The cause is untested: expert routing flips (8 of 128
-experts per token) carried to every row by bidirectional attention are a
-hypothesis. A failed comparison prints these distances beside the verdict. No
-DiffusionGemma result is recorded yet, so the tables above hold none.
+The four prompts are speculative decoding, diffusion versus autoregressive
+models, a prime-checking Python function, and a Chinese-to-English translation.
+The record includes every prompt/canvas token ID, seeds 66–69, the 256-token
+canvas, vocabulary size, and `prev_temp_inv=1.25`. The GGUF provenance names the
+Hugging Face repository, pinned revision and declared LFS object ID, with the
+download's verified byte count. A different input/model requires its own
+measurement. The calibration used eight CPU threads with repacking enabled;
+`source` also records the reconstructed pinned build and the 403/403 compilation
+inputs checked against the pinned upstream content.
+
+`bench/dg_candidate.py` executes the supplied candidate command without a shell
+and writes an execution receipt alongside each `*.mojo.f32`. Its argv template
+passes the model, variant, full case inputs, output path and, for SC, the shared
+original previous-step buffer and its temperature. Receipts bind those inputs
+to output contents and the executed binary/revision. The comparator verifies
+all receipts and expected output lengths before computing metrics. This also
+allows an independently executed candidate to agree bit for bit when a measured
+case has zero spread. The parity record uses the candidate revision recorded
+at export.
+
+### Reference sensitivity
+
+`bench/dg_sensitivity.py` runs four prompts without and with SC. Each case has
+unified and cached passes, independent repeats of both unified SC states, and
+an SC pass whose previous logits have a seeded relative perturbation of about
+1e-6. Same-path repeats had zero relative RMS in all eight comparisons. The
+table shows cached versus unified spread. The perturbation results quantify input
+sensitivity. Implementation tolerance comes from the same-input cached/unified controls.
+
+<!-- dg-sensitivity:start -->
+| Case | Prompt tokens | no-SC min cosine / max rel. RMS | SC min cosine / max rel. RMS | noisy-SC median rel. RMS |
+|---|---:|---:|---:|---:|
+| case0 | 8 | 0.91919 / 0.40245 | 0.82027 / 0.61085 | 0.25812 |
+| case1 | 14 | 0.94080 / 0.34426 | 0.94369 / 0.34135 | 0.20590 |
+| case2 | 14 | 0.88880 / 0.47896 | 0.92500 / 0.38092 | 0.20348 |
+| case3 | 23 | 0.96107 / 0.27980 | 0.97264 / 0.28693 | 0.14547 |
+
+| Fault injection | Rejected case/variant comparisons |
+|---|---:|
+| layer 15 output scale dropped | 16 / 16 |
+| soft-cap removed | 16 / 16 |
+<!-- dg-sensitivity:end -->
+
+All 24 same-input positive controls pass, and each fault is detected on all 16
+case/variant pairs. A separate replay of the saved logits records the same
+verdicts in `bench/checks/2026-11-05-dg-rule-verification.json`.
+Fault detection requires a rejection somewhere in the suite;
+all positive controls must pass. The layer-15 mutant changes its output scale
+from 0.5234375 to 1.0. Its SC passes consume the original model's previous logits,
+which isolates the current forward pass. The soft-cap inverse promotes to f64
+before clipping to a representable value below one, including logits rounded
+exactly to either cap. The report also retains total-variation and
+Jensen–Shannon distances at temperature 0.8 as diagnostics. The acceptance rule
+uses the five calibrated metrics and the explicit cap invariant.
+
+Run the calibration and fault check serially.
+
+```bash
+python bench/dg_sensitivity.py --model "$MODEL" --ref build/dg_ref --llama-src "$DG_LLAMA_SRC" \
+    --model-provenance model-provenance.json --threads 8 --out build/dg-study/original
+python bench/check_dg_bound.py make-mutant "$MODEL" --layer 15 --out build/layer15-dropped.gguf
+python bench/dg_sensitivity.py --model build/layer15-dropped.gguf --ref build/dg_ref \
+    --llama-src "$DG_LLAMA_SRC" --threads 8 --out build/dg-study/dropped --original build/dg-study/original
+python bench/check_dg_bound.py analyze-sensitivity build/dg-study/original \
+    --dropped build/dg-study/dropped --dropped-layer 15 --out build/dg-study/sensitivity.json
+python bench/check_dg_bound.py check build/dg-study/original \
+    --dropped build/dg-study/dropped --dropped-layer 15 --out build/dg-study/check.json
+python bench/check_dg_bound.py render-sensitivity bench/checks/2026-11-05-dg-sensitivity.json
+```
+
+The 44 full-model forwards used the pinned reference only. The runtime forward
+pass and its resulting parity record remain the #64 work.
 
 The tokenizer goldens in `tests/fixtures/gemma4-tokenizer-golden.tsv` fix the
 encoding, and `tests/test_tokenizer_gemma4.mojo` checks the Mojo tokenizer against
