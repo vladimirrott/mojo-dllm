@@ -340,3 +340,169 @@ encoding, and `tests/test_tokenizer_gemma4.mojo` checks the Mojo tokenizer again
 them. Decoding the ids through the GGUF vocabulary restores 53 of the
 54 strings; the string holding a literal U+2581 does not come back, because
 decoding turns every U+2581 into a space.
+
+### Reference path decision
+
+The comparator chosen for the cached forward in #64 is the prompt K/V path,
+selected with `dg_ref logits --cached`, matching its prefill-once execution.
+Its real-file results should name that mode. This choice departs from the
+reference tool's default unified pass. Numerical tolerance must account for
+the measured cached/unified spread in both directions, whichever path is
+selected as comparator. Each runtime variant still needs to meet its bound.
+The cached and unified paths implement the same forward equations. Both agree
+with an independent complete f32 forward on the tiny model. Real-model traces
+identify shape-dependent arithmetic in the Q/K projections and the prompt
+softmax. The projection oracle's relative RMS resolution, up to `2.8e-7`, is
+comparable to the `2.2e-7` to `3.1e-7` gap between the paths, so this evidence
+supports both as comparators at that resolution. Selecting cached leaves the
+observed numerical spread relevant to a Mojo implementation.
+
+The measurements used recorded base `a34de8618b25dfc32ee43749db47d767a9f0a25d`
+with an overlay of the pinned CPU compilation inputs. All 403 compilation
+inputs were compared with their pinned GitHub contents and matched. The
+source manifest and verification are recorded in
+`bench/checks/2026-11-05-dg-reference-source.json`.
+
+At the pinned commit `2e715c0639c6f07c57c943f8d5a7919953af8f7c`, unified prompt
+queries attend causally over prompt keys. Canvas queries see the same prompt
+and canvas keys as the decode mask, including the last `window - 1` prompt
+keys in sliding layers. The embedding normalization and encoder/decoder
+scalars also match by region. Prompt rows are independent of canvas rows, so
+their per-layer K/V can be computed once. The non-flash cached store retains
+those values in f32, and decode uses the same absolute canvas positions.
+[Pinned model, mask and phase handling](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/src/models/diffusion-gemma.cpp#L18-L212)
+[Pinned graph](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/src/models/diffusion-gemma.cpp#L339-L587)
+[Pinned caller](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/examples/diffusion/diffusion.cpp#L489-L572)
+
+The 2026-11-05 measurements use an AMD EPYC 9J14 CPU build with flash attention
+and self-conditioning disabled. At `P=9`, the initial region embeddings and
+first-layer attention-normalized inputs are bit-identical in both paths.
+The first differing tensors are the Q4_K Q and K projections, at
+`gemma4-common.h` lines 22 and 46. Their differing global rows are 8 and 264.
+The Q6_K V projection remains bit-identical. Observing graph nodes through
+the evaluation callback preserves every final-logit bit for both paths.
+[Pinned projections](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/src/models/gemma4-common.h#L22-L51)
+
+The source of this first difference is the repacked CPU matrix product.
+`ggml-cpu/repack.cpp` lines 4637-4646 send complete groups of four input rows
+to GEMM and the remaining rows to GEMV. Lines 4697-4704 also distinguish
+four-row activation packing from single-row packing. With `P=9`, prompt row
+8 belongs to a GEMM group in the unified pass and becomes the prefill's GEMV
+tail. Global row 264 is the unified pass's GEMV tail and belongs to a complete
+GEMM group in the 256-row decode. The two kernels accumulate Q4_K products in
+different floating-point orders.
+[Pinned CPU dispatch](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/ggml/src/ggml-cpu/repack.cpp#L4637-L4705)
+[Pinned x86 GEMV](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/ggml/src/ggml-cpu/arch/x86/repack.cpp#L1464)
+[Pinned x86 GEMM](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/ggml/src/ggml-cpu/arch/x86/repack.cpp#L2042)
+
+`tools/ref/dg_matmul.cpp` replays that Q projection using only its original
+GGUF weight bytes and the traced f32 input. With `CPU_REPACK q4_K_8x8`, its
+one-thread result reproduces the real graph tensor bit for bit. Splitting
+the same matrix inputs at the following prompt lengths gives the measured
+four-row period. Disabling CPU repacking removes every difference in this
+isolated product.
+
+| Prompt rows | Differing global rows, repacked Q projection | Maximum absolute difference | Ordinary CPU buffer |
+|---:|---|---:|---|
+| 8 | none | 0 | bit-identical |
+| 9 | 8, 264 | 0.0000610352 | bit-identical |
+| 12 | none | 0 | bit-identical |
+| 14 | 12, 13, 268, 269 | 0.0000915527 | bit-identical |
+| 16 | none | 0 | bit-identical |
+
+The period describes this projection. The complete model on this EPYC also
+differs at `P=8`, while #163's earlier measurement reported equality at
+8 and 16. The full-model measurements below use the first standard prompt
+and canvas seed 66 for `P=8`, and the second prompt and canvas seed 67 for
+the other lengths. `P=9` uses its first nine IDs. `P=16` appends IDs
+`[2, 1613]` to its 14 IDs. Each row compares cached with unified on identical
+inputs, using the metrics from `bench/check_dg_bound.py`.
+
+| Prompt rows | CPU weight buffer | Minimum cosine | Maximum relative RMS | Same argmax |
+|---:|---|---:|---:|---:|
+| 8 | repacking enabled | 0.919194 | 0.402452 | 255 / 256 |
+| 9 | repacking enabled | 0.947347 | 0.325038 | 170 / 256 |
+| 14 | repacking enabled | 0.940799 | 0.344264 | 152 / 256 |
+| 16 | repacking enabled | 1.000000 | 0 | 256 / 256 |
+| 9 | repacking disabled | 0.905604 | 0.424862 | 152 / 256 |
+| 14 | repacking disabled | 0.935752 | 0.353081 | 156 / 256 |
+
+Disabling repacking removes the isolated Q projection difference and leaves
+further differences in the complete model. Additional traces at `P=9`
+with repacking disabled, and at `P=8` with repacking enabled, identify their
+first difference at the first layer's prompt `kq_soft_max` node. Q/K/V
+projections, head normalization, RoPE and raw attention scores are
+bit-identical before it. The prompt softmax differs by `1.1920929e-7`.
+The original repacked
+`P=9` trace grows to a first-layer canvas-output error of `0.00931`.
+
+This second source is the CPU softmax's SIMD width. `ggml-cpu/vec.cpp`
+lines 628-644 use 16-lane vector exponentials and f32 block reductions
+under AVX512F/DQ, or eight lanes under AVX2/FMA. Lines 694-698 handle the
+remaining values with scalar `expf` and individual accumulation. The
+EPYC build uses `-march=native` with AVX512F/DQ enabled. A prefill key axis
+of 8, 9 or 14 therefore uses scalar exponentials, while the unified axis
+of 264, 265 or 270 uses the 16-lane path for the same allowed prompt keys.
+Masked canvas keys contribute zero after exponentiation. At `P=16`, both
+shapes use the vector path for all allowed prompt keys. The AVX2/FMA
+eight-lane branch is a hypothesis for #163's earlier 8/16-aligned boundary
+pattern. That report omits the earlier machine's compiler flags, and these
+measurements use AVX512F/DQ.
+[Pinned softmax SIMD and tail](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/ggml/src/ggml-cpu/vec.cpp#L625-L699)
+[Pinned softmax normalization](https://github.com/danielhanchen/llama.cpp/blob/2e715c0639c6f07c57c943f8d5a7919953af8f7c/ggml/src/ggml-cpu/ops.cpp#L5873-L5881)
+
+`bench/check_dg_softmax.py` isolates this operation using the traced scores
+and a causal mask. Increasing only its key axis from 8 or 9 to 16, with
+every extra key masked, reproduces the difference. The short and full
+shapes reproduce the corresponding graph tensors bit for bit. Against
+an independent NumPy float64 softmax, the maximum absolute error is
+`3.572e-8` for the short shapes and `1.235e-7` for the full shapes. All
+four additional traced final-logit files match their untraced runs byte
+for byte.
+
+`bench/check_dg_projection.py` independently dequantizes the first layer's
+Q/K/V weights with the GGUF Python package and accumulates their products in
+NumPy float64. It checks five input rows, including both differing boundary
+rows. With the pinned Q8_K activation rounding, the largest relative RMS
+errors against that oracle are `2.762e-7` for unified and `2.301e-7` for
+cached. Each path stays close to the same quantized matrix product.
+
+`bench/check_dg_tiny_paths.py` checks the complete forward equations on the
+existing two-layer random fixture. It writes the fixture's dequantized
+weights to a temporary 10.15 MiB f32 GGUF and uses a synthetic vocabulary
+for its preselected token IDs. At prompt lengths 8, 9, 14 and 16, both
+reference paths agree with `scripts/dg_numpy.py` using `quant=False` on all
+64 canvas argmaxes and every top-5 set. Across both paths the minimum cosine
+is `0.999999881811` and maximum relative RMS is `0.000486239`.
+
+The evidence is `bench/checks/2026-11-05-dg-reference-paths.json`. It records
+the exact real-model tokens, per-layer trace summaries, independent
+projection results, isolated matrix and softmax replay, and complete
+tiny-f32 results.
+The real-model independent oracle covers the first differing projections,
+while the complete independent forward uses the tiny model. The mode choice
+therefore follows the cached execution being implemented. Numerical
+comparisons retain their explicit CPU mode and measured error metrics.
+
+The native CPU-tool tests require `DG_REF` and `DG_MATMUL` to point at
+built executables. CI leaves those variables unset and skips those tests.
+The recorded local run enabled them explicitly.
+
+Build both reference tools against the same pinned CPU libraries, then
+run the diagnostics with new output directories.
+
+```bash
+scripts/build_dg_ref.sh
+build/dg_ref logits "$MODEL" "$PROMPT_CSV" "$CANVAS_CSV" unified.f32 8 \
+    --trace-dir trace-unified --trace-only inp_region,attn_norm-0,Qcur-0,Kcur-0,Vcur-0,attn_out-0,ffn_moe_logits-0,l_out
+build/dg_ref logits "$MODEL" "$PROMPT_CSV" "$CANVAS_CSV" cached.f32 8 --cached \
+    --trace-dir trace-cached --trace-only inp_region,attn_norm-0,Qcur-0,Kcur-0,Vcur-0,attn_out-0,ffn_moe_logits-0,l_out
+uv run --only-group fixtures python bench/compare_dg_traces.py trace-unified trace-cached --prompt 9 --out trace.json
+uv run --only-group fixtures python bench/check_dg_projection.py "$MODEL" trace-unified trace-cached --prompt 9 --out projection.json
+uv run --only-group fixtures python bench/check_dg_matmul.py "$MODEL" trace-unified --prompt 9 --matmul build/dg_matmul --out-dir matrix-replay
+uv run --only-group fixtures python bench/check_dg_tiny_paths.py --ref build/dg_ref --out-dir tiny-f32-paths
+# For the softmax replay, repeat the trace commands with --no-repack,
+# add kq-0,kq_soft_max-0 to --trace-only, and use fresh trace directories.
+uv run --only-group fixtures python bench/check_dg_softmax.py trace-unified-plain trace-cached-plain \
+    --prompt 9 --llama-bin "$DG_LLAMA_SRC/build/bin" --out softmax.json
+```

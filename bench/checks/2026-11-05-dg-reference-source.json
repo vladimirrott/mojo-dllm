@@ -1,0 +1,488 @@
+{
+  "commit": "2e715c0639c6f07c57c943f8d5a7919953af8f7c",
+  "mechanism": "reconstructed pinned CPU sources; see manifest",
+  "manifest": {
+    "base": "a34de8618b25dfc32ee43749db47d767a9f0a25d",
+    "pin": "2e715c0639c6f07c57c943f8d5a7919953af8f7c",
+    "mechanism": "Copy recorded base source, overlay exact changed CPU compilation inputs read from GitHub file API at pin, remove files absent from pinned tree. No source commit is fabricated.",
+    "files": [
+      {
+        "path": "CMakeLists.txt",
+        "github_blob": "f0d62f6d362ca8ba34021070ab3930f24d7563ca",
+        "mode": "100644"
+      },
+      {
+        "path": "common/arg.cpp",
+        "github_blob": "258e3b1fb643545ed29070cfb29895bbd247e579",
+        "mode": "100644"
+      },
+      {
+        "path": "common/chat.cpp",
+        "github_blob": "96019cc382a7304c26b9d96e469d48e53bbbccbc",
+        "mode": "100644"
+      },
+      {
+        "path": "common/common.cpp",
+        "github_blob": "221f0897cacec374e84553df2575fc8969364216",
+        "mode": "100644"
+      },
+      {
+        "path": "common/common.h",
+        "github_blob": "803aa5f7e82fac133c3829a8e4043743d5274054",
+        "mode": "100644"
+      },
+      {
+        "path": "common/download.cpp",
+        "github_blob": "6d4b5e506d31dba148f3c088874ad7864fa4a88f",
+        "mode": "100644"
+      },
+      {
+        "path": "common/hf-cache.cpp",
+        "github_blob": "f0c501b622391bef789c3a88e9994f85abd263f7",
+        "mode": "100644"
+      },
+      {
+        "path": "common/parsers/qwen3-coder.cpp",
+        "github_blob": "abed169742d8d9264b01ad6e42496b9c94a404d8",
+        "mode": "100644"
+      },
+      {
+        "path": "common/peg-parser.cpp",
+        "github_blob": "167a889e329525fd80b90a1557099b33787b3303",
+        "mode": "100644"
+      },
+      {
+        "path": "common/peg-parser.h",
+        "github_blob": "6b348fab0132739220398d531c138a29f07ec874",
+        "mode": "100644"
+      },
+      {
+        "path": "common/preset.cpp",
+        "github_blob": "14d51809d36358cd616b460cf67f2df29a40a8d1",
+        "mode": "100644"
+      },
+      {
+        "path": "common/reasoning-budget.cpp",
+        "github_blob": "4884299f3011fa9ecf99d684bb332fbe7d223ee9",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/CMakeLists.txt",
+        "github_blob": "2888c13d1795e0ff3dfdb2f2cf1e5c42ee7a7fe3",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion-gemma-eval/CMakeLists.txt",
+        "github_blob": "7a99b8423a1dfe80ddecea8f2cc5d97046965eed",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion-gemma-eval/diffusion-gemma-eval.cpp",
+        "github_blob": "7e3fb4698a4c9a671f97d5244e8f31e1e64c2d7b",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion-gemma-server/CMakeLists.txt",
+        "github_blob": "768ce5895e655dfaf5b72da2d5160abb64f5f891",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion-gemma-server/diffusion-gemma-server.cpp",
+        "github_blob": "3a1c122f154d3175ecb04e755be4127535ec76b4",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion-gemma-server/diffusion-gemma-visual-server.cpp",
+        "github_blob": "1ccade24d9819ec9a044f4b3b7d9dfbcb8242816",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion/diffusion-cli.cpp",
+        "github_blob": "8f57aa0754e3b5f6605b76cff407521ee85bf568",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion/diffusion.cpp",
+        "github_blob": "f2f97b5da0bef9d66cf3050c6f3647f7170251f4",
+        "mode": "100644"
+      },
+      {
+        "path": "examples/diffusion/diffusion.h",
+        "github_blob": "a7f305e2921353b2d694e46a68fbf765c2f24836",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/CMakeLists.txt",
+        "github_blob": "35252a83a5eaa585d36b1adc4ec16833ab8b9a31",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/include/ggml-backend.h",
+        "github_blob": "7a65d8121b1c1f135bef3586058b83c07ce0cb73",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/include/ggml.h",
+        "github_blob": "d62a631043a3745882dba3333004cb92cb75a7c6",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-backend-impl.h",
+        "github_blob": "dc7367dec4fe3246eb255332c45c23af34fcb959",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-backend-meta.cpp",
+        "github_blob": "fb35be352aed3f1cd330b92bd5c48de0def7ca37",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-backend.cpp",
+        "github_blob": "22e5fd9c7d998fe93fd9e04b5dae6806d58c60af",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/amx/amx.cpp",
+        "github_blob": "e90c2797ffdd2877a3fdd216f95e9e27003e4bf1",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/arch/arm/repack.cpp",
+        "github_blob": "ad0e5ccaf7b7ed185c69dfb7731de2ee22c1f785",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/common.h",
+        "github_blob": "abbadc359c5addac941f8add92674061c8b790bf",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/ggml-cpu.c",
+        "github_blob": "53d39d2491edca865a149b250c96c7970e0feeb0",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/ops.cpp",
+        "github_blob": "85e17018c6862cf7b0925529b23d046493ed9cab",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/quants.c",
+        "github_blob": "5e36459f8cbc5900b375d2189414307393471a6b",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/quants.h",
+        "github_blob": "93ea7eeffe5b00ad2c612aac49b7983c12949525",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/simd-mappings.h",
+        "github_blob": "b7b390db42a0765f3f4a6830e3b488c7eac1217b",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-cpu/spacemit/ime.cpp",
+        "github_blob": "7b801275554e829fa72f71a691084975a6629d85",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-impl.h",
+        "github_blob": "ae26e0c23b461b716ed5f91977a419e10556087b",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-quants.c",
+        "github_blob": "7750a72ce61b9ddf4aa6b63f60b07e5283147e9f",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml-quants.h",
+        "github_blob": "75188f1af180e3592f3c94bc4077989fb817c359",
+        "mode": "100644"
+      },
+      {
+        "path": "ggml/src/ggml.c",
+        "github_blob": "5d8449a883237bdb4afab976ffb39585e0695c77",
+        "mode": "100644"
+      },
+      {
+        "path": "gguf-py/gguf/constants.py",
+        "github_blob": "f385b9ac4a95af93caf526264719ac8f78cb15a0",
+        "mode": "100644"
+      },
+      {
+        "path": "gguf-py/gguf/gguf_writer.py",
+        "github_blob": "cf15914c05f367a93217f3ded89756d22abe9983",
+        "mode": "100644"
+      },
+      {
+        "path": "gguf-py/gguf/quants.py",
+        "github_blob": "cc0772913becc23c42ea38cd76a8874fbb447e27",
+        "mode": "100644"
+      },
+      {
+        "path": "gguf-py/gguf/scripts/gguf_convert_endian.py",
+        "github_blob": "3b20998c68a79e7c225dad11c11543b285f65027",
+        "mode": "100755"
+      },
+      {
+        "path": "gguf-py/pyproject.toml",
+        "github_blob": "07e6f7fee82d3da7f870c2ad44969842a54131c2",
+        "mode": "100644"
+      },
+      {
+        "path": "gguf-py/tests/test_quants.py",
+        "github_blob": "0d7729f95cc8fd3b958ade3fb57147796818e1bc",
+        "mode": "100755"
+      },
+      {
+        "path": "include/llama.h",
+        "github_blob": "5d780476d5b8758862a31c97b547f1061cebee70",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-arch.cpp",
+        "github_blob": "ddd4295ffacc6bbea521e5c3664546ba408ff51e",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-arch.h",
+        "github_blob": "8c20ae9d0aafa6e819b34dca67b39de0e0513216",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-context.cpp",
+        "github_blob": "33ad7845f6bfbfe35cb225cebebc954f487820bb",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-graph.cpp",
+        "github_blob": "cffd083d300b2a6b7c6ee91614fb661de98a1b6b",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-graph.h",
+        "github_blob": "c1a7d36ee449b87ef5f884f91a4e90ac211d8674",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-hparams.cpp",
+        "github_blob": "b83f45ba9efe50a6f9e8d9187eb3df33385db866",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-hparams.h",
+        "github_blob": "2c464ad303a13e1b0363c506d0f1526473b26fb7",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-kv-cache-dsa.cpp",
+        "github_blob": "2602ae3c312612dd8af06290b1cc10e141471a17",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-kv-cache-dsv4.cpp",
+        "github_blob": "f0ab9f35dce7c47ae0f0b371c8c7707b8c1dc00b",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-kv-cache-dsv4.h",
+        "github_blob": "44bf9595546b60377dba0e2d2cbfbed6da2ee356",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-kv-cache.cpp",
+        "github_blob": "9dde1a9b7b94c9af6d2f772946040e66527ce208",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-kv-cache.h",
+        "github_blob": "60d2e183c6903089cc5aa559d947a12780436565",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-memory-recurrent.cpp",
+        "github_blob": "5fd644645cb206f4f82817583a52075aa1e32b4c",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-memory-recurrent.h",
+        "github_blob": "d0fc14779c37d477cda7b872569c7e64ed86b7bf",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-model-loader.cpp",
+        "github_blob": "a963f24801214f9a2d8de3e48ac7af27b6aa4a12",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-model-saver.cpp",
+        "github_blob": "1160e88a2d03039b70fa222b9fe277e46d4e0cb5",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-model.cpp",
+        "github_blob": "32c5bbeccfc33372787350e2ae1fe2cb89d1ce20",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-model.h",
+        "github_blob": "483a863ca4c68738b727a08b171e02eb2fca3e14",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-quant.cpp",
+        "github_blob": "9ddd6a63a61e0ca12494ecd4cfa22c5454c1be7f",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-vocab.cpp",
+        "github_blob": "65b569762a2ad291a94f7d4a8928bd21d217d2c8",
+        "mode": "100644"
+      },
+      {
+        "path": "src/llama-vocab.h",
+        "github_blob": "14a90fbdb69f62ba62dfc09df9d863647f0ad058",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/deepseek32.cpp",
+        "github_blob": "083b32ecf4304a8b08f10d89106210a6d7a15969",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/deepseek4.cpp",
+        "github_blob": "da51549e48c96a03b4dc1322c39eafa2ae771f4a",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/deepseek41.cpp",
+        "github_blob": "97b2cbabefd3e92b5cfcc54a3df05724f38f04c4",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/dflash.cpp",
+        "github_blob": "e3c2f1f295c285614c56bae456dad2410ad9ff56",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/diffusion-gemma.cpp",
+        "github_blob": "d89cd71d029a757824db38e391f79c5e125979f8",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/dots3note.cpp",
+        "github_blob": "237a9237141ec5b2b94e1e0f35f2b0c15fca676f",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/gemma3n.cpp",
+        "github_blob": "f2e5ae6c85b6cfd3a6474df1fe01306b4912bae8",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/gemma4-common.h",
+        "github_blob": "9a6f4ddd555116f8627eda639e61d8fab898888f",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/gemma4.cpp",
+        "github_blob": "f4f80d39602ffeb5b6e7c04b89caefbf85f20e9c",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/glm-dsa.cpp",
+        "github_blob": "a9d62c0768f571bfe4e2031b2a5d013836a08e25",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/minimax-m3.cpp",
+        "github_blob": "73d145daeff39e3d59a2f35aaf5e24978b0e7665",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/models.h",
+        "github_blob": "1ed8dfe5f294b7ff3d91052b2fbf8c0db86800f0",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/qwen3next.cpp",
+        "github_blob": "98fafd917b443516ff68c316100641266e2d8fa4",
+        "mode": "100644"
+      },
+      {
+        "path": "src/models/qwen4exp.cpp",
+        "github_blob": "c3e2b010d42c9d8a8c1d4b13c8e0643dbd3fe9ed",
+        "mode": "100644"
+      },
+      {
+        "path": "vendor/cpp-httplib/httplib.cpp",
+        "github_blob": "934d9905498dbee70db6a9cbc14e70b91c836fec",
+        "mode": "100644"
+      },
+      {
+        "path": "vendor/cpp-httplib/httplib.h",
+        "github_blob": "4ab2b5ad4d16ab08e1f1a1831af673855b472f47",
+        "mode": "100644"
+      }
+    ],
+    "remove": [
+      ".github/workflows/build-apple-daily.yml",
+      "cmake/win-app.cmake",
+      "cmake/win-app.rc.in",
+      "common/win-app.manifest",
+      "conversion/limite.py",
+      "conversion/mistral4.py",
+      "ggml/src/ggml-hexagon/htp/conv2d-ops.c",
+      "ggml/src/ggml-hexagon/htp/conv2d-ops.h",
+      "ggml/src/ggml-hexagon/htp/upscale-ops.c",
+      "ggml/src/ggml-hexagon/htp/upscale-ops.h",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_iq2_s_f32.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_iq2_s_q8_1_dp4a.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_iq2_xs_f32.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_iq2_xs_q8_1_dp4a.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_iq2_xxs_f32.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_iq2_xxs_q8_1_dp4a.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_q2_0_f32.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_q2_0_q8_1_dp4a.cl",
+      "ggml/src/ggml-opencl/kernels/gemm_noshuffle_q4_K_f32_tiled_dp4a.cl",
+      "ggml/src/ggml-opencl/kernels/gemv_noshuffle_iq2_s_f32.cl",
+      "ggml/src/ggml-opencl/kernels/gemv_noshuffle_iq2_xs_f32.cl",
+      "ggml/src/ggml-opencl/kernels/gemv_noshuffle_iq2_xxs_f32.cl",
+      "ggml/src/ggml-opencl/kernels/gemv_noshuffle_q2_0_f32.cl",
+      "ggml/src/ggml-opencl/kernels/iq2_s_grid.cl",
+      "ggml/src/ggml-opencl/kernels/iq2_xs_grid.cl",
+      "ggml/src/ggml-opencl/kernels/iq2_xxs_grid.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mm_iq2_s_f32_l4_lm.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mm_iq2_xs_f32_l4_lm.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mm_iq2_xxs_f32_l4_lm.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mm_q2_0_f32_l4_lm.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_iq2_s_f32.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_iq2_s_f32_flat.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_iq2_xs_f32.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_iq2_xs_f32_flat.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_iq2_xxs_f32.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_iq2_xxs_f32_flat.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_q2_0_f32.cl",
+      "ggml/src/ggml-opencl/kernels/mul_mv_q2_0_f32_flat.cl",
+      "ggml/src/ggml-sycl/fattn-dpas.cpp",
+      "ggml/src/ggml-sycl/fattn-dpas.hpp",
+      "src/models/limite.cpp",
+      "src/models/mistral-large4.cpp",
+      "tests/test-backend-tensor.cpp",
+      "tests/test-fp8.cpp",
+      "tests/test_conversion_fp8.py",
+      "tools/ui/src/lib/components/app/dialogs/DialogSearch.svelte",
+      "tools/ui/src/lib/components/app/settings/SettingsResetButton.svelte",
+      "tools/ui/src/lib/constants/keyboard-shortcuts.constants.ts"
+    ]
+  },
+  "compilation_input_verification": {
+    "source_pin": "2e715c0639c6f07c57c943f8d5a7919953af8f7c",
+    "method": "direct byte comparison with GitHub file API content",
+    "compilation_inputs_checked": 403,
+    "matching": 403,
+    "differences": []
+  }
+}

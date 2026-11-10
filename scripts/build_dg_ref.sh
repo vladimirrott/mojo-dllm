@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build_dg_ref.sh: build the DiffusionGemma reference, CPU only.
 #
-#   scripts/build_dg_ref.sh                build llama.cpp at the pin, then build/dg_ref
+#   scripts/build_dg_ref.sh                build llama.cpp at the pin, then build/dg_ref and build/dg_matmul
 #   scripts/build_dg_ref.sh --llama-only   stop after the llama.cpp build
 #
 # mainline llama.cpp cannot load a DiffusionGemma GGUF. Its support is the
@@ -12,6 +12,7 @@
 #   $DG_LLAMA_SRC          default ~/src/llama.cpp-diffusion-gemma
 #   $DG_LLAMA_SRC/build    CPU build: llama-tokenize, llama-diffusion-gemma-eval, libllama
 #   build/dg_ref           tools/ref/dg_ref.cpp linked against that libllama
+#   build/dg_matmul        isolated matrix replay linked against the same ggml libraries
 #
 # The commit is the one the work was written against (issue #66). The branch has
 # moved since: its head was 5fcd1b166556b85b8957dd432fcaff5351af59bf on
@@ -42,7 +43,7 @@ case "${1:-}" in
     "") ;;
     --llama-only) llama_only=1 ;;
     -h | --help)
-        sed -n '2,29p' "$0"
+        sed -n '2,30p' "$0"
         exit 0
         ;;
     *)
@@ -115,4 +116,8 @@ c++ -O2 -std=c++17 "$repo_root/tools/ref/dg_ref.cpp" \
     -I"$src/include" -I"$src/ggml/include" \
     -L"$src/build/bin" -lllama -lggml -lggml-base -Wl,-rpath,"$src/build/bin" \
     -o "$repo_root/build/dg_ref" || die "compiling tools/ref/dg_ref.cpp failed"
-echo "build_dg_ref: done in $((SECONDS - started)) s: build/dg_ref"
+c++ -O2 -std=c++17 "$repo_root/tools/ref/dg_matmul.cpp" \
+    -I"$src/ggml/include" \
+    -L"$src/build/bin" -lggml -lggml-cpu -lggml-base -Wl,-rpath,"$src/build/bin" \
+    -o "$repo_root/build/dg_matmul" || die "compiling tools/ref/dg_matmul.cpp failed"
+echo "build_dg_ref: done in $((SECONDS - started)) s: build/dg_ref and build/dg_matmul"

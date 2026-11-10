@@ -119,6 +119,25 @@ def test_a_modified_checkout_is_refused(tmp_path: Path, upstream: tuple[Path, st
     assert not log.exists(), "cmake must not run on a tree that differs from the pin"
 
 
+def test_builds_both_reference_tools_with_the_same_cpu_libraries(
+    tmp_path: Path, upstream: tuple[Path, str], stub_cmake: tuple[Path, Path]
+) -> None:
+    repo, sha = upstream
+    bindir, log = stub_cmake
+    compiler = bindir / "c++"
+    compiler.write_text('#!/usr/bin/env bash\nprintf "c++ %s\\n" "$*" >> "$STUB_LOG"\n')
+    compiler.chmod(compiler.stat().st_mode | stat.S_IXUSR)
+    done = run(tmp_path, {"DG_LLAMA_REPO": str(repo), "DG_LLAMA_COMMIT": sha}, bindir=bindir, log=log)
+    assert done.returncode == 0, done.stderr
+    calls = [line for line in log.read_text().splitlines() if line.startswith("c++ ")]
+    assert len(calls) == 2
+    for call, tool in zip(calls, ("dg_ref", "dg_matmul")):
+        assert str(ROOT / "tools" / "ref" / f"{tool}.cpp") in call
+        assert f"-L{tmp_path / 'src' / 'build' / 'bin'}" in call
+        assert f"-o {ROOT / 'build' / tool}" in call
+    assert "-lggml-cpu" in calls[1]
+
+
 def test_an_abbreviated_commit_is_not_the_pin(tmp_path: Path, upstream: tuple[Path, str], stub_cmake: tuple[Path, Path]) -> None:
     repo, sha = upstream
     bindir, log = stub_cmake
