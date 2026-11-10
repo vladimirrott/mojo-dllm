@@ -35,7 +35,7 @@ stops the run (see [Errors](#errors)).
 | `--steps N` | `--max-tokens` | denoising steps; a multiple of the block count |
 | `--block-length N` | 32, or `--max-tokens` when that is smaller | LLaDA's semi-autoregressive block size; must divide `--max-tokens`. A Dream run refuses it |
 | `--temperature T` | 0 | LLaDA: 0 is greedy; above 0 adds Gumbel noise as LLaDA does. Dream supports only 0 and stops with an error above it |
-| `--remasking S` | `low_confidence` | LLaDA: `low_confidence` or `random`. Dream: `entropy` (the default), `maskgit_plus`, `topk_margin` |
+| `--remasking S` | `low_confidence` | LLaDA: `low_confidence` or `random`. Dream: `entropy` (the default), `maskgit_plus`, `topk_margin`, `origin`, or llama.cpp-style `random` |
 | `--threshold P` | 0 (off) | A number from 0 to 1. LLaDA: each step also commits every masked token whose confidence is at least P, so easy blocks finish in fewer steps (Fast-dLLM's parallel decoding). A step still commits at least what the schedule says. Not exact: see [Benchmarks](benchmarks.md#steps-and-quality) for its measured effect on accuracy |
 | `--dual-cache` | off | LLaDA: cache every position's keys and values and, inside a block, recompute only that block's rows (Fast-dLLM's DualCache). The cache is refreshed at the first step of each block. Not exact: the prompt and later blocks see keys from the block's first step; see [Benchmarks](benchmarks.md#steps-and-quality) for its measured effect on accuracy. Cannot combine with `--full-logits` |
 | `--seed N` | 42 | seeds this program's PRNG (it does not reproduce a PyTorch run). It fixes DiffusionGemma's random canvas and draws as well |
@@ -49,6 +49,7 @@ stops the run (see [Errors](#errors)).
 | `--device D` | `cpu` | `cpu`, or `gpu` for an NVIDIA GPU with compute capability 8.0 or newer |
 | `--no-chat` | off | skip the chat template |
 | `--full-logits` | off | LLaDA: compute logits for every position, as a generic runtime would (for benchmarking). Dream refuses it |
+| `--no-suppress-mask` | off | allow the mask token as a sampled answer for parity experiments; by default it is excluded from argmax and the softmax normalizer |
 | `--no-early-stop` | off | run every step even after the answer is final (the benchmark and parity harnesses use it) |
 | `--visual` | off | show the canvas: masked positions as teal blocks, tokens committed in that step in bold orange when colour is enabled |
 | `--visual-interval N` | 1 | redraw every N steps and at the final step; requires `--visual` and N at least 1 |
@@ -64,6 +65,20 @@ position after the prompt that is still masked or holds such a token holds
 such a token, no later step can change the printed text, because steps only
 fill masked positions. The result is the same text with fewer steps, and
 `--json` reports `"stopped_early": true`. `--no-early-stop` runs every step.
+
+Dream's `origin` follows its Python reference: each masked position commits
+independently with probability `1 - s/t`, forced to 1 at the final step. Zero
+commits in an intermediate step is valid. This differs from llama.cpp's
+`origin`, which floors the transfer count before calculating the probability.
+Dream `random` follows llama.cpp: assign each candidate a uniform random
+confidence, then select the scheduled top-k positions. Both rules use `--seed`.
+The default remains `entropy` for Dream; select `--remasking origin` to use
+Dream's reference algorithm.
+
+Mask suppression keeps the Gumbel RNG draw for the excluded token, so toggling
+it does not shift the random stream. On GPU, suppression uses full logits
+because the device row statistics include the mask. `--no-suppress-mask`
+retains the existing device reduction path when its other conditions hold.
 
 The `--eb-*` flags belong to DiffusionGemma and every other model refuses them by name. The parser accepts them, but `run` stops on a `diffusion-gemma` file until the model is wired into the generation loop (see [Introduction](introduction.md)). It refuses the file once its header is read, before the tokenizer is built, with ``diffusion-gemma does not run on this model: `run` waits for the model to be wired into the generation loop (#277), so use `logits` (CPU) until then``, so the `--eb-*` flags have no effect yet; `run --help` says so. Only `logits` runs that architecture. The forward pass (#64) and the entropy-bounded loop (#65) are written; #277 tracks joining them. Once it lands, DiffusionGemma's `--json` reports `"stopped_early": true` when the stop rule ends the run before `--eb-steps` steps.
 
