@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "experiment": "layer-output-scale-mutant",
+  "date": "2026-11-10T05:32:04.977477+00:00",
+  "tensor": {
+    "name": "blk.15.layer_output_scale.weight",
+    "before": 0.5234375,
+    "after": 1.0,
+    "data_offset": 9206349504,
+    "type": "F32"
+  },
+  "source": {
+    "file": "diffusiongemma-26B-A4B-it-Q4_K_M.gguf",
+    "bytes": 16806810208,
+    "sha256": "24523b6c833c9ce9f5f34f9b333ab1517d73d6f1e76a103645353114c8028bc5"
+  },
+  "mutant": {
+    "file": "layer15-scale-dropped.gguf",
+    "bytes": 16806810208,
+    "sha256": "604052d90ed5b9a5e90d7201617a5d9fb39c044aa3987b1d4764e12feb1ea0df"
+  },
+  "make_mutant_stdout": "blk.15.layer_output_scale.weight: 0.5234375 -> 1.0 in /home/hy/experiments/diffusiongemma-support-20261105/review-20261110/layer15-scale-dropped.gguf",
+  "command": [
+    "/home/hy/experiments/diffusiongemma-support-20261105/snapshot/.venv/bin/python",
+    "/home/hy/experiments/diffusiongemma-support-20261105/review-20261110/pr175/bench/check_dg_bound.py",
+    "make-mutant",
+    "/home/hy/experiments/diffusiongemma-support-20261105/models/diffusiongemma-26B-A4B-it-Q4_K_M.gguf",
+    "--layer",
+    "15",
+    "--out",
+    "/home/hy/experiments/diffusiongemma-support-20261105/review-20261110/layer15-scale-dropped.gguf",
+    "--record",
+    "/home/hy/experiments/diffusiongemma-support-20261105/review-20261110/2026-11-10-dg-mutant.json"
+  ],
+  "measured_mutant": {
+    "file": "layer15-scale-dropped.gguf",
+    "bytes": 16806810208,
+    "sha256": "604052d90ed5b9a5e90d7201617a5d9fb39c044aa3987b1d4764e12feb1ea0df",
+    "matches_regenerated": true
+  },
+  "source_matches_declared_lfs_oid": true
+}

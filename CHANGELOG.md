@@ -73,11 +73,15 @@ semantic versioning (0.y: minor bumps may break things).
   decode step), each with or without self-conditioning from a given
   previous-step buffer. `bench/parity.py --arch diffusion-gemma` runs the
   reference phase, and a comparison phase that stops with a message until
-  mojo-dllm's own outputs exist (#64). The comparison's bound comes from the
-  LLaDA evidence plus a check on each row's largest logit, and every case
-  records how far the reference lies from itself. `bench/check_dg_bound.py`
-  shows the bound rejecting a missing final soft-cap and a dropped layer scale
-  (`bench/checks/2026-11-04-dg-bound.json`). The tokenizer goldens for `gemma4`
+  mojo-dllm's own outputs exist (#64). The `dg-fixed-input-v1` comparison derives
+  per-prompt, per-SC-state bounds from both directions of the reference's own
+  cached/unified spread and checks the model's absolute soft-cap. Candidate
+  execution receipts and byte-identity checks guard the comparison path.
+  `bench/check_dg_bound.py` records calibration controls and detects a missing
+  final soft-cap and a dropped layer scale
+  (`bench/checks/2026-11-05-dg-sensitivity.json`). Its `make-mutant --record`
+  option saves the tensor change, file sizes and model hashes.
+  The tokenizer goldens for `gemma4`
   are in `tests/fixtures/gemma4-tokenizer-golden.tsv`, with their provenance.
 - DiffusionGemma's entropy-bounded denoiser (`_generate_diffusion_gemma`,
   issue #65): a random canvas over the whole vocabulary, a per-position

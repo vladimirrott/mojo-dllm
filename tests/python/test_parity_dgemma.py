@@ -12,6 +12,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -280,3 +281,150 @@ def test_dg_metrics_reads_row_maxima_along_axis_one(monkeypatch: pytest.MonkeyPa
     # It differs from every other metric's view of the same data: the cap-removed case has equal argmax.
     same = parity.dg_metrics(Rows([[10.0, 1.0]]), Rows([[10.0, 1.0]]), 0)
     assert same["top1_max_rel_err"] == 0.0
+
+
+def test_dg_reference_bound_keeps_prompt_and_conditioning_states_separate() -> None:
+    records = []
+    for case, prompt, cosine in (("case0", "short", 0.92), ("case1", "long", 0.80)):
+        for state in ("no-sc", "sc"):
+            for direction in ("cache-path", "cache-path-reverse"):
+                records.append(dict(GOOD, case=case, prompt=prompt, state=state, kind=direction,
+                                    min_cosine=cosine if state == "no-sc" else cosine - 0.1,
+                                    same_inputs=True, expected_rejected=False))
+    records += [dict(records[0], kind="previous-logit-noise", min_cosine=0.01, same_inputs=False),
+                dict(records[0], kind="layer 15 output scale dropped", min_cosine=0.02, expected_rejected=True),
+                # A cache-path measurement can itself be a changed-input or fault experiment.
+                dict(records[0], min_cosine=0.03, same_inputs=False),
+                dict(records[0], min_cosine=0.04, expected_rejected=True)]
+    bound = parity.dg_reference_bound(records)
+    assert bound["short"]["no-sc"]["min_cosine"] == 0.92
+    assert bound["short"]["sc"]["min_cosine"] == pytest.approx(0.82)
+    assert bound["long"]["no-sc"]["min_cosine"] == 0.80
+
+
+def test_dg_reference_bound_requires_both_cache_directions_and_states() -> None:
+    record = dict(GOOD, case="case0", prompt="short", state="no-sc", kind="cache-path",
+                  same_inputs=True, expected_rejected=False)
+    with pytest.raises(SystemExit, match="cache-path-reverse"):
+        parity.dg_reference_bound([record])
+
+
+def test_softcap_invariant_catches_either_sign_and_non_finite_logits() -> None:
+    assert parity.dg_softcap_violations(30.0, 30.0) == []
+    assert "soft-cap" in parity.dg_softcap_violations(30.01, 30.0)[0]
+    assert "finite" in parity.dg_softcap_violations(float("nan"), 30.0)[0]
+
+
+@pytest.mark.parametrize("maximum, cap", [(float("inf"), 30.0), (30.0, float("nan")),
+                                         (30.0, float("inf")), (1.0, 0.0), (1.0, -30.0)])
+def test_softcap_invariant_refuses_invalid_model_cap_or_logits(maximum: float, cap: float) -> None:
+    assert "finite" in parity.dg_softcap_violations(maximum, cap)[0]
+
+
+def test_fixed_input_bound_refuses_changed_model_canvas_and_sc_temperature() -> None:
+    meta = dict(prompt="fixed", prompt_tokens=[2, 3], canvas_tokens=[4, 5], canvas_length=2, n_vocab=8,
+                prev_temp_inv=1.25, final_logit_softcapping="30", model="model.gguf", llama_cpp_commit="pinned")
+    bound = dict(protocol="dg-fixed-input-v1", model="model.gguf", llama_cpp_commit="pinned",
+                 cases={"fixed": dict(inputs=dict(meta), states={"no-sc": BOUND, "sc": GOOD})})
+    assert parity.dg_case_bound(meta, "unified", bound) == BOUND
+    assert parity.dg_case_bound(meta, "cached-sc", bound) == GOOD
+    for key, wrong in (("canvas_tokens", [5, 4]), ("prompt_tokens", [2, 4]), ("prev_temp_inv", 1.0),
+                       ("model", "other.gguf"), ("llama_cpp_commit", "moved"), ("final_logit_softcapping", "40")):
+        with pytest.raises(SystemExit, match=key):
+            parity.dg_case_bound(dict(meta, **{key: wrong}), "unified-sc", bound)
+
+
+def test_committed_dg_rule_accepts_reference_controls_and_rejects_both_faults() -> None:
+    evidence = json.loads((ROOT / parity.DG_SENSITIVITY_EVIDENCE).read_text(encoding="utf-8"))
+    bound = parity.dg_sensitivity_bound(ROOT)
+    rejected = {}
+    positive_count = 0
+    for record in evidence["records"]:
+        state_bound = bound["cases"][record["prompt"]]["states"][record["state"]]
+        violations = parity.dg_violations(record, state_bound)
+        violations += parity.dg_softcap_violations(record["max_abs_logit"], record["softcap"])
+        if record["expected_rejected"]:
+            rejected.setdefault(record["kind"], []).append(bool(violations))
+        elif record["same_inputs"]:
+            positive_count += 1
+            assert violations == []
+    assert positive_count == 24
+    assert len(rejected) == 2 and all(len(rows) == 16 and all(rows) for rows in rejected.values())
+    assert bound["model_identity"]["provenance"]["declared_hf_lfs_oid"]
+
+
+def test_same_named_model_with_a_different_identity_is_refused() -> None:
+    evidence = json.loads((ROOT / parity.DG_SENSITIVITY_EVIDENCE).read_text(encoding="utf-8"))
+    bound = parity.dg_sensitivity_bound(ROOT)
+    inputs = next(iter(evidence["inputs"].values()))
+    meta = dict(inputs, model=evidence["model"], llama_cpp_commit=evidence["llama_cpp_commit"],
+                model_bytes=evidence["model_identity"]["bytes"], model_provenance=evidence["model_provenance"])
+    parity.dg_case_bound(meta, "unified", bound)
+    changed = dict(meta["model_provenance"], declared_hf_lfs_oid="different-object")
+    with pytest.raises(SystemExit, match="model_identity"):
+        parity.dg_case_bound(dict(meta, model_provenance=changed), "unified", bound)
+
+
+@pytest.mark.parametrize("field, value", [("filename", "different.gguf"), ("verified_bytes", 18)])
+def test_model_provenance_must_match_model_name_and_size(field: str, value: object) -> None:
+    source = dict(repository="fixture/model", revision="fixture", filename="tiny.gguf",
+                  verified_bytes=17, declared_hf_lfs_oid="existing-object-id")
+    meta = dict(model="tiny.gguf", model_bytes=17, model_provenance=source)
+    assert parity.dg_model_identity(meta)["provenance"]["filename"] == "tiny.gguf"
+    with pytest.raises(SystemExit, match="provenance filename or verified byte count"):
+        parity.dg_model_identity(dict(meta, model_provenance=dict(source, **{field: value})))
+
+
+@pytest.mark.parametrize("fault, message", [
+    ("wrong-commit", "different reference commit"),
+    ("incomplete-suite", "complete fixed DiffusionGemma prompt suite"),
+    ("rejected-control", "rejects its repeat reference control"),
+    ("accepted-mutant", "does not reject both required mutants"),
+])
+def test_sensitivity_loader_refuses_invalid_calibration(tmp_path: Path, fault: str, message: str) -> None:
+    evidence = json.loads((ROOT / parity.DG_SENSITIVITY_EVIDENCE).read_text(encoding="utf-8"))
+    if fault == "wrong-commit":
+        evidence["llama_cpp_commit"] = "0" * 40
+    elif fault == "incomplete-suite":
+        evidence["inputs"].pop(next(iter(evidence["inputs"])))
+    elif fault == "rejected-control":
+        control = next(r for r in evidence["records"] if r["kind"] == "repeat")
+        control["min_cosine"] = -1.0
+    else:
+        for record in evidence["records"]:
+            if "soft-cap removed" in record["kind"]:
+                control = next(r for r in evidence["records"]
+                               if r["kind"] == "cache-path" and r["prompt"] == record["prompt"]
+                               and r["state"] == record["state"])
+                for key in (*GOOD, "max_abs_logit", "softcap"):
+                    record[key] = control[key]
+    path = tmp_path / parity.DG_SENSITIVITY_EVIDENCE
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(evidence))
+    script = tmp_path / "scripts/build_dg_ref.sh"
+    script.parent.mkdir()
+    script.write_text((ROOT / "scripts/build_dg_ref.sh").read_text())
+    with pytest.raises(SystemExit, match=message):
+        parity.dg_sensitivity_bound(tmp_path)
+
+
+def test_dgemma_compare_entrypoint_uses_the_dg_protocol_and_requires_receipts(tmp_path: Path,
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    case = make_case(tmp_path / "build/dg-parity/model", mojo=parity.DG_VARIANTS)
+    evidence = json.loads((ROOT / parity.DG_SENSITIVITY_EVIDENCE).read_text(encoding="utf-8"))
+    inputs = next(iter(evidence["inputs"].values()))
+    meta = dict(inputs, ref_spread={}, model=evidence["model"], llama_cpp_commit=evidence["llama_cpp_commit"],
+                model_bytes=evidence["model_identity"]["bytes"], model_provenance=evidence["model_provenance"])
+    (case / "case.json").write_text(json.dumps(meta))
+    bound = parity.dg_sensitivity_bound(ROOT)
+    roots = []
+
+    def measured_bound(root: Path) -> dict:
+        roots.append(root)
+        return bound
+
+    monkeypatch.setattr(parity, "ROOT", tmp_path)
+    monkeypatch.setattr(parity, "dg_sensitivity_bound", measured_bound)
+    with pytest.raises(SystemExit, match="candidate execution receipt.*missing"):
+        parity.dgemma_main(SimpleNamespace(model="model.gguf", llama_src="unused", phase="compare"))
+    assert roots == [tmp_path]
