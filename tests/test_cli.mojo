@@ -192,7 +192,7 @@ def _check(command: String, rest: List[String]) raises -> String:
 
 def test_every_command_declares_its_flags() raises:
     var run = command_spec("run")
-    assert_equal(len(run.values), 18)
+    assert_equal(len(run.values), 19)
     assert_equal(len(run.booleans), 8)
     var tokenize = command_spec("tokenize")
     assert_equal(len(tokenize.values), 2)
@@ -824,6 +824,19 @@ def test_entropy_bound_flags_belong_to_diffusion_gemma() raises:
     check_arch_flags(steps, "llada")
 
 
+def test_eps_belongs_to_dream_and_is_loaded_into_the_config() raises:
+    var eps = _arch_run_args(["--eps", "0.5"])
+    check_arch_flags(eps, "dream")
+    with assert_raises(
+        contains="--eps applies to Dream; LLaDA uses --block-length"
+    ):
+        check_arch_flags(eps, "llada")
+    with assert_raises(contains="--eps applies to Dream, not diffusion-gemma"):
+        check_arch_flags(eps, "diffusion-gemma")
+    assert_equal(gen_config(eps).eps, 0.5)
+    assert_equal(gen_config(_arch_run_args([])).eps, 1e-3)
+
+
 def test_json_reports_steps_taken_and_the_stop_reason() raises:
     var res = GenResult()
     assert_equal(
@@ -1370,6 +1383,11 @@ def test_run_option_values_are_checked_before_the_model_loads() raises:
     cases.append(["--threshold", "inf"])
     cases.append(["--threshold", "-1"])
     cases.append(["--threshold", "1.5"])
+    cases.append(["--eps", "abc"])
+    cases.append(["--eps", "nan"])
+    cases.append(["--eps", "inf"])
+    cases.append(["--eps", "-0.1"])
+    cases.append(["--eps", "1.0"])
     cases.append(["--device", "foo"])
     cases.append(["--remasking", "foo"])
     var wants = List[String]()
@@ -1378,6 +1396,11 @@ def test_run_option_values_are_checked_before_the_model_loads() raises:
     wants.append("flag --threshold needs a finite number, got 'inf'")
     wants.append("flag --threshold must be between 0 and 1, got -1")
     wants.append("flag --threshold must be between 0 and 1, got 1.5")
+    wants.append("flag --eps needs a finite number, got 'abc'")
+    wants.append("flag --eps needs a finite number, got 'nan'")
+    wants.append("flag --eps needs a finite number, got 'inf'")
+    wants.append("flag --eps must be at least 0 and less than 1, got -0.1")
+    wants.append("flag --eps must be at least 0 and less than 1, got 1.0")
     wants.append("flag --device must be cpu or gpu, got 'foo'")
     wants.append(
         "flag --remasking must be one of low_confidence, random, entropy,"
@@ -1389,7 +1412,9 @@ def test_run_option_values_are_checked_before_the_model_loads() raises:
             rest.append(x)
         _same("run", rest, wants[i])
     var ok = base.copy()
-    for x in List[String](["--threshold", "0.9", "--device", "gpu"]):
+    for x in List[String](
+        ["--threshold", "0.9", "--eps", "0.5", "--device", "gpu"]
+    ):
         ok.append(x)
     assert_equal(_check("run", ok), "")
     var random = base.copy()

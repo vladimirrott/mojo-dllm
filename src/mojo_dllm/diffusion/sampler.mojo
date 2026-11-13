@@ -127,6 +127,8 @@ def float_flag_rule(flag: String, x: Float64) -> String:
         return "must be above 0" if x <= 0 else ""
     if flag == "threshold":
         return "must be between 0 and 1" if x < 0 or x > 1 else ""
+    if flag == "eps":
+        return "must be at least 0 and less than 1" if x < 0 or x >= 1 else ""
     # temperature, eb-t-min, eb-bound, eb-confidence
     return "must be at least 0" if x < 0 else ""
 
@@ -233,6 +235,19 @@ def num_transfer_tokens(m: Int, steps: Int) -> List[Int]:
     for i in range(m % steps):
         out[i] += 1
     return out^
+
+
+def dream_n_transfer(n_masked: Int, i: Int, steps: Int, eps: Float64) -> Int:
+    """Dream's number of masked positions to commit at step `i`.
+
+    The final step commits every remaining position. Before it, the schedule
+    uses t = 1 - i(1-eps)/steps and s = 1 - (i+1)(1-eps)/steps.
+    """
+    if i >= steps - 1:
+        return n_masked
+    var t = 1.0 - Float64(i) * (1.0 - eps) / Float64(steps)
+    var s = 1.0 - Float64(i + 1) * (1.0 - eps) / Float64(steps)
+    return Int(Float64(n_masked) * (1.0 - s / t))
 
 
 def select_top(conf: List[Float64], k: Int) -> List[Int]:
@@ -726,11 +741,7 @@ def _generate_dream[
                     raise _refuse_non_finite(cand[j] - P, res.forward_passes)
             x0 = greedy[0].copy()
             conf = greedy[1].copy()
-        var n_transfer = len(cand)
-        if i < cfg.steps - 1:
-            var t = 1.0 - Float64(i) * (1.0 - cfg.eps) / Float64(cfg.steps)
-            var s = 1.0 - Float64(i + 1) * (1.0 - cfg.eps) / Float64(cfg.steps)
-            n_transfer = Int(Float64(len(cand)) * (1.0 - s / t))
+        var n_transfer = dream_n_transfer(len(cand), i, cfg.steps, cfg.eps)
         var committed = List[Int]()
         if n_transfer > 0:
             for j in select_top(conf, n_transfer):
