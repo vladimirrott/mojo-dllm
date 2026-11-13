@@ -4,6 +4,7 @@ from std.testing import assert_equal, assert_true, assert_raises, TestSuite
 from mojo_dllm.diffusion.sampler import (
     GenConfig,
     num_transfer_tokens,
+    dream_n_transfer,
     select_top,
     argmax_and_prob,
     generate,
@@ -43,6 +44,17 @@ def test_transfer_schedule_matches_generate_py() raises:
     for v in num_transfer_tokens(31, 7):
         total += v
     assert_equal(total, 31)
+
+
+def test_dream_transfer_schedule_matches_timestep_equation() raises:
+    assert_equal(dream_n_transfer(100, 0, 4, 0.5), 12)
+    assert_equal(dream_n_transfer(100, 1, 4, 0.5), 14)
+    assert_equal(dream_n_transfer(100, 2, 4, 0.5), 16)
+    assert_equal(dream_n_transfer(100, 3, 4, 0.5), 100)
+    assert_equal(dream_n_transfer(100, 0, 4, 0.001), 24)
+    assert_equal(dream_n_transfer(100, 1, 4, 0.001), 33)
+    assert_equal(dream_n_transfer(100, 2, 4, 0.001), 49)
+    assert_equal(dream_n_transfer(100, 3, 4, 0.001), 100)
 
 
 def test_select_top_is_stable_on_ties() raises:
