@@ -50,14 +50,6 @@ comptime VERSION = "0.2.0"
 comptime GIT_SHA = get_defined_string["MOJO_DLLM_GIT_SHA", "unknown"]()
 
 
-def build_id() -> String:
-    return String(GIT_SHA)
-
-
-def version_text() -> String:
-    return version_line() + "\ncommit: " + build_id()
-
-
 struct CommandSpec(Movable):
     """The flags one command declares, and what it requires."""
 
@@ -178,6 +170,16 @@ def usage_for(command: String) raises -> String:
 def version_line() -> String:
     """The package-version line used by the CLI and `--version` output."""
     return "mojo-dllm " + VERSION
+
+
+def build_id() -> String:
+    """The commit scripts/build.sh stamped in, or `unknown`."""
+    return String(GIT_SHA)
+
+
+def version_text() -> String:
+    """The two lines `mojo-dllm --version` prints."""
+    return version_line() + "\ncommit: " + build_id()
 
 
 def usage() raises -> String:
