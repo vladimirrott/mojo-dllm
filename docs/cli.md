@@ -1,26 +1,12 @@
 # Command line
 
 ```text
-mojo-dllm --version
 mojo-dllm run      --model PATH --prompt TEXT [options]
 mojo-dllm tokenize --model PATH --prompt TEXT [--no-chat]
 mojo-dllm inspect  PATH
 mojo-dllm logits   --model PATH --tokens IDS --rows POSITIONS --out FILE [--threads N] [--device D]
                    [--path unified|cached] [--prev FILE --prev-temp-inv X]
 ```
-
-`mojo-dllm --version` prints the package version on its first line and the
-build-time commit on its second:
-
-```text
-mojo-dllm 0.1.0
-commit: abc123456789
-```
-
-The commit is the 12-character `HEAD` used to build the binary. It has a
-`-dirty` suffix when `src/` had pending changes, or is `unknown` when the
-build cannot read Git metadata. A binary continues to identify the commit it
-was built from even if `HEAD` later moves.
 
 This page describes the binary, `build/mojo-dllm`. The `./mojo-dllm run` launcher
 takes the prompt as its first word, accepts `-m` for `--model`, defaults
@@ -36,9 +22,19 @@ as the value of a flag (`--prompt --help` sets the prompt to `--help`).
 command. Each command declares its flags: a flag the command does not declare
 stops the run (see [Errors](#errors)).
 
-`mojo-dllm --version` prints the package version and build-time commit on
-separate lines, then exits 0. The package version is the `"version"` key of
-`run --json`.
+`mojo-dllm --version` prints the package version on its first line and the
+commit the binary was built from on its second, then exits 0:
+
+```text
+mojo-dllm 0.2.0
+commit: abc123456789
+```
+
+The package version is the `"version"` key of `run --json`. The commit is the
+12-character `HEAD` of the checkout the binary was built from, with a `-dirty`
+suffix when `src/` had pending changes, or `unknown` when the build cannot read
+Git metadata. A binary keeps reporting the commit it was built from after
+`HEAD` moves; rebuild to stamp the new one.
 
 ## `run`
 

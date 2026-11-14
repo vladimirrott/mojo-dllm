@@ -184,8 +184,8 @@ def usage() raises -> String:
     return (
         "mojo-dllm "
         + VERSION
-        + ": diffusion language model inference in Mojo\n"
-        + "\nusage:\n"
+        + ": diffusion language model inference in Mojo\n\n"
+        + "usage:\n"
         + command_usage("run")
         + "\n"
         + command_usage("tokenize")
