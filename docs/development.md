@@ -13,6 +13,11 @@ fails its step; it never skips it.
 
 The hooks run `scripts/ci-local.sh --fast` before each commit (hygiene scan,
 `mojo format`, `-Werror` build) and the full set before each push.
+When a commit changes `src/`, the pre-commit build runs before that commit
+exists, so its binary records the parent `HEAD` with a `-dirty` suffix. The
+launcher decides to rebuild from file times, and that binary is newer than the
+sources, so it keeps reporting the parent commit: run `scripts/build.sh` after
+committing to stamp the new `HEAD`.
 
 ## The gates
 
@@ -24,6 +29,7 @@ machine with a GPU, the GPU tests that CI only builds:
 | hygiene | `scripts/check_hygiene.sh --tracked` | a credential pattern (a provider token, a private key block, a database URL with a password) or the author's employer name appears in tracked text, or a tracked Markdown file outside `bench/results/` holds an em or en dash; file names are read NUL separated, so a name with non-ASCII or special characters is scanned too) |
 | format | `scripts/check_format.sh` (`mojo format -q src tests bench`, comparing every file before and after) | `mojo format` changes any file, an untracked one included (Mojo has no check mode) |
 | build | `scripts/build.sh` | any compiler warning (`-Werror`) |
+| embedded build commit | `scripts/check_build_id.sh` | the built binary does not report the expected commit, or a build without Git metadata does not report `unknown` |
 | tests | `scripts/run-tests.sh` | a test fails, a file runs zero tests, the total differs from `tests/test-count.txt`, or a file's count differs from `tests/test-counts.txt` |
 | launcher tests | `uv run --locked --only-group test pytest tests/python -q` | a test of the `./mojo-dllm` launcher fails |
 | script lock | `uv lock --script mojo-dllm --check` | `mojo-dllm.lock` is missing, or the `# dependencies` header of `./mojo-dllm` no longer matches it. After you change the pin, run `uv lock --script mojo-dllm` and commit the lock |

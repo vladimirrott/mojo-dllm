@@ -17,7 +17,7 @@ from std.ffi import ErrNo, external_call, c_int, get_errno
 from std.math import isfinite
 from std.os import getenv, remove
 from std.os.path import exists, getsize, isdir, isfile
-from std.sys import argv, exit, num_logical_cores, stderr
+from std.sys import argv, exit, get_defined_string, num_logical_cores, stderr
 from std.time import perf_counter_ns
 
 from cli.args import Args, parse_csv_ints, unknown_flag_error
@@ -47,6 +47,7 @@ from mojo_dllm.tokenizer.bpe import Tokenizer
 from mojo_dllm.tokenizer.gemma4 import gemma4_chat_prompt
 
 comptime VERSION = "0.2.0"
+comptime GIT_SHA = get_defined_string["MOJO_DLLM_GIT_SHA", "unknown"]()
 
 
 struct CommandSpec(Movable):
@@ -167,8 +168,18 @@ def usage_for(command: String) raises -> String:
 
 
 def version_line() -> String:
-    """The one line `mojo-dllm --version` prints."""
+    """The package-version line used by the CLI and `--version` output."""
     return "mojo-dllm " + VERSION
+
+
+def build_id() -> String:
+    """The commit scripts/build.sh stamped in, or `unknown`."""
+    return String(GIT_SHA)
+
+
+def version_text() -> String:
+    """The two lines `mojo-dllm --version` prints."""
+    return version_line() + "\ncommit: " + build_id()
 
 
 def usage() raises -> String:
@@ -1455,10 +1466,10 @@ struct Decision(Movable):
 def decide(raw: List[String]) raises -> Decision:
     """Help, usage errors and valid arguments, in that order of precedence."""
     var command = raw[1] if len(raw) > 1 else String("")
+    if command == "--version":
+        return Decision.help(version_text())
     if is_top_level_help(command):
         return Decision.help(usage())
-    if command == "--version":
-        return Decision.help(version_line())
     if not command_known(command):
         return Decision.error(
             "unknown command: " + command + "\nsee: mojo-dllm --help"

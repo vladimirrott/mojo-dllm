@@ -31,6 +31,12 @@ else
     arch=sm_80
     why="WARNING: nvidia-smi is installed but failed ('${caps:0:120}'), as it does after a driver mismatch; the GPU is unknown"
 fi
+sha=unknown
+if [ -e .git ] \
+    && head="$(git rev-parse --short=12 HEAD 2>/dev/null)" \
+    && changes="$(git status --porcelain -- src 2>/dev/null)"; then
+    sha="$head${changes:+-dirty}"
+fi
 # Said every time: a binary built for another card runs the GPU path wrongly or not at all.
 echo "build.sh: GPU architecture $arch ($why)" >&2
 # The compiler is the one uv.lock pins. MOJO replaces it: the sandbox that runs
@@ -38,4 +44,4 @@ echo "build.sh: GPU architecture $arch ($why)" >&2
 MOJO="${MOJO:-uv run --frozen mojo}"
 mkdir -p "$(dirname "$out")"
 # shellcheck disable=SC2086  # MOJO is a command with arguments
-exec $MOJO build -Werror --target-accelerator "$arch" -I src "$src" -o "$out"
+exec $MOJO build -Werror --target-accelerator "$arch" -D "MOJO_DLLM_GIT_SHA=$sha" -I src "$src" -o "$out"

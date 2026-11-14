@@ -22,8 +22,19 @@ as the value of a flag (`--prompt --help` sets the prompt to `--help`).
 command. Each command declares its flags: a flag the command does not declare
 stops the run (see [Errors](#errors)).
 
-`mojo-dllm --version` prints one line, `mojo-dllm` and the version, and exits
-0. The same version is the `"version"` key of `run --json`.
+`mojo-dllm --version` prints the package version on its first line and the
+commit the binary was built from on its second, then exits 0:
+
+```text
+mojo-dllm 0.2.0
+commit: abc123456789
+```
+
+The package version is the `"version"` key of `run --json`. The commit is the
+12-character `HEAD` of the checkout the binary was built from, with a `-dirty`
+suffix when `src/` had pending changes, or `unknown` when the build cannot read
+Git metadata. A binary keeps reporting the commit it was built from after
+`HEAD` moves; rebuild to stamp the new one.
 
 ## `run`
 

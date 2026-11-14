@@ -46,6 +46,8 @@ from main import (
     write_f32_file,
     usage,
     usage_for,
+    build_id,
+    version_text,
 )
 
 
@@ -414,13 +416,13 @@ def test_help_exits_zero_and_wins_over_other_problems() raises:
     assert_equal(execute(["mojo-dllm", "--help"]), 0)
 
 
-def test_version_flag_prints_one_line_and_exits_zero() raises:
+def test_version_flag_prints_version_and_build_id_and_exits_zero() raises:
     var d = _decide("--version", [])
     assert_equal(d.code(), 0)
     assert_true(not d.is_error())
     assert_true(not d.proceeds())
-    assert_equal(d.text, version_line())
-    assert_true(not d.text.__contains__("\n"))
+    assert_equal(d.text, version_line() + "\ncommit: " + build_id())
+    assert_true(d.text.__contains__("\n"))
     assert_true(usage().startswith(version_line() + ": "))
     assert_equal(execute(["mojo-dllm", "--version"]), 0)
 
@@ -608,7 +610,7 @@ def test_help_and_version_stay_on_stdout() raises:
     assert_equal(help[2], "")
     var version = _streams(["mojo-dllm", "--version"])
     assert_equal(version[0], 0)
-    assert_equal(version[1], version_line() + "\n")
+    assert_equal(version[1], version_text() + "\n")
     assert_equal(version[2], "")
 
 

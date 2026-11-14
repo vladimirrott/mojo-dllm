@@ -115,6 +115,9 @@ jobs:
       - name: Build with -Werror
         run: bash scripts/build.sh
 
+      - name: Verify the embedded build commit
+        run: bash scripts/check_build_id.sh
+
       - name: Tests, with the passing count pinned
         run: bash scripts/run-tests.sh
 
